@@ -50,14 +50,13 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "numpy", # Required for MacOS
+        "numpy",
         "pcbnewTransition==0.2.0",
         "shapely>=1.7",
         "click>=7.1",
-        "markdown2>=2.4",
+        "markdown2>=2.3",
         "pybars3>=0.9",
-        "solidpython>=1.1.2",
-        "commentjson>=0.9"
+        "commentjson>=0.8"
     ],
     setup_requires=[
         "versioneer"
