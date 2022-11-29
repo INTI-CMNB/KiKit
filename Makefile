@@ -14,14 +14,23 @@ all:
 # doc package test pcm
 
 deb:
+	@-[ ! -f versioneer.py.ok ] && mv versioneer.py versioneer.py.ok
+	@-[ ! -f kikit/_version.py.ok ] && mv kikit/_version.py kikit/_version.py.ok
+	cp debian/versioneer.py .
 	cp debian/control_both debian/control
 	# Why do I get an empty kikit here?
 	DEB_BUILD_OPTIONS=nocheck fakeroot dpkg-buildpackage -uc -b
+	quilt push -a
 	fakeroot debian/rules clean
+	quilt pop -a
 	cp debian/control_pkg debian/control
 	DEB_BUILD_OPTIONS=nocheck fakeroot dpkg-buildpackage -uc -b
+	quilt push -a
 	fakeroot debian/rules clean
+	quilt pop -a
 	cp debian/control_both debian/control
+	mv versioneer.py.ok versioneer.py
+	mv kikit/_version.py.ok kikit/_version.py
 
 deb_clean:
 	fakeroot debian/rules clean
