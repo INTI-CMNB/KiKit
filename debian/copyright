@@ -1,0 +1,266 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: kikit
+Upstream-Contact: Jan Mrázek <email@honzamrazek.cz>
+Source: https://github.com/yaqwsx/KiKit
+
+Files:     Dockerfile
+           MANIFEST.in
+           Makefile
+           README.md
+           doc/cli.md
+           doc/examples.md
+           doc/fabrication.md
+           doc/fabrication/jlcpcb.md
+           doc/fabrication/oshpark.md
+           doc/fabrication/pcbway.md
+           doc/faq.md
+           doc/installation.md
+           doc/macosInstallation.md
+           doc/multiboard.md
+           doc/panelization.md
+           doc/panelizeCli.md
+           doc/panelizeGui.md
+           doc/plugins.md
+           doc/present.md
+           doc/resources/3dstencil1.png
+           doc/resources/3dstencil2.jpg
+           doc/resources/conn-pcbnew.png
+           doc/resources/conn.kicad_pcb
+           doc/resources/conn.png
+           doc/resources/examplePanel1.png
+           doc/resources/examplePanel10.png
+           doc/resources/examplePanel11.png
+           doc/resources/examplePanel12.png
+           doc/resources/examplePanel13.png
+           doc/resources/examplePanel14.png
+           doc/resources/examplePanel15.png
+           doc/resources/examplePanel16.png
+           doc/resources/examplePanel17.png
+           doc/resources/examplePanel18.png
+           doc/resources/examplePanel19.png
+           doc/resources/examplePanel2.png
+           doc/resources/examplePanel20.png
+           doc/resources/examplePanel21.png
+           doc/resources/examplePanel22.png
+           doc/resources/examplePanel23.png
+           doc/resources/examplePanel24.png
+           doc/resources/examplePanel25.png
+           doc/resources/examplePanel26.png
+           doc/resources/examplePanel3.png
+           doc/resources/examplePanel4.png
+           doc/resources/examplePanel5.png
+           doc/resources/examplePanel6.png
+           doc/resources/examplePanel7.png
+           doc/resources/examplePanel8.png
+           doc/resources/examplePanel9.png
+           doc/resources/examplePost.py
+           doc/resources/key-1.png
+           doc/resources/key-2.png
+           doc/resources/multiboard.kicad_pcb
+           doc/resources/multiboardpcb.jpg
+           doc/resources/multiboardsch.jpg
+           doc/resources/panelizeToolbar.png
+           doc/resources/panelizeWindow.png
+           doc/resources/promo.jpg
+           doc/resources/promo.xcf
+           doc/resources/stencil1.jpg
+           doc/resources/stencil2.jpg
+           doc/resources/stencil3.jpg
+           doc/resources/stencil4.jpg
+           doc/resources/stencil5.jpg
+           doc/resources/windowsCommandPrompt1.jpg
+           doc/resources/windowsCommandPrompt2.jpg
+           doc/scripting.md
+           doc/stencil.md
+           doc/understandingTabs.md
+           kikit/__init__.py
+           kikit/_version.py
+           kikit/actionPlugins/__init__.py
+           kikit/actionPlugins/hideReferences.py
+           kikit/actionPlugins/panelize.py
+           kikit/annotations.py
+           kikit/common.py
+           kikit/defs.py
+           kikit/doc.py
+           kikit/drc.py
+           kikit/drc_ui.py
+           kikit/eeschema.py
+           kikit/eeschema_v6.py
+           kikit/export.py
+           kikit/export_ui.py
+           kikit/fab/__init__.py
+           kikit/fab/common.py
+           kikit/fab/jlcpcb.py
+           kikit/fab/oshpark.py
+           kikit/fab/pcbway.py
+           kikit/fab_ui.py
+           kikit/info.py
+           kikit/intervals.py
+           kikit/modify.py
+           kikit/modify_ui.py
+           kikit/panelize.py
+           kikit/panelize_ui.py
+           kikit/panelize_ui_impl.py
+           kikit/panelize_ui_sections.py
+           kikit/plugin.py
+           kikit/present.py
+           kikit/present_ui.py
+           kikit/resources/graphics/kikitIcon_48x48.png
+           kikit/resources/graphics/kikitIcon_64x64.png
+           kikit/resources/graphics/panelizeIcon_24x24.png
+           kikit/resources/graphics/pcbBg.png
+           kikit/resources/graphics/removeRefIcon_24x24.png
+           kikit/resources/kikit.kicad_sym
+           kikit/resources/kikit.pretty/Board.kicad_mod
+           kikit/resources/kikit.pretty/Fiducial.kicad_mod
+           kikit/resources/kikit.pretty/NPTH.kicad_mod
+           kikit/resources/kikit.pretty/Tab.kicad_mod
+           kikit/resources/panelizePresets/default.json
+           kikit/resources/panelizePresets/jlcTooling.json
+           kikit/resources/present/templates/default/.gitignore
+           kikit/resources/present/templates/default/css/styles.css
+           kikit/resources/present/templates/default/package-lock.json
+           kikit/resources/present/templates/default/package.json
+           kikit/resources/present/templates/default/postcss.config.js
+           kikit/resources/present/templates/default/src/styles.css
+           kikit/resources/present/templates/default/tailwind.config.js
+           kikit/resources/present/templates/default/template.json
+           kikit/sexpr.py
+           kikit/stencil.py
+           kikit/stencil_ui.py
+           kikit/substrate.py
+           kikit/text.py
+           kikit/typing.py
+           kikit/ui.py
+           kikit/units.py
+           pcm/kikit-lib/metadata.json
+           pcm/kikit/metadata.json
+           pcm/kikit/plugins/__init__.py
+           scripts/exampleDoc.py
+           scripts/exampleScripting.py
+           scripts/installMacOS.bash
+           scripts/panelizeDoc.py
+           scripts/registerPlugin.sh
+           scripts/setJson.py
+           setup.cfg
+           setup.py
+           test/resources/assembly_project1/assembly_project1.kicad_pcb
+           test/resources/assembly_project1/assembly_project1.kicad_prl
+           test/resources/assembly_project1/assembly_project1.kicad_pro
+           test/resources/assembly_project1/assembly_project1.kicad_sch
+           test/resources/assembly_project1/bom.csv
+           test/resources/assembly_project1/bottom_sheet.kicad_sch
+           test/resources/assembly_project1/nested.kicad_sch
+           test/resources/assembly_project1/pos.csv
+           test/resources/conn-fail.kicad_pcb
+           test/resources/conn-fail.kicad_pro
+           test/resources/conn.kicad_pcb
+           test/resources/conn.kicad_pro
+           test/resources/multiboard.kicad_pcb
+           test/resources/testplugin.py
+           test/system/common.bash
+           test/system/drc.bats
+           test/system/export.bats
+           test/system/fab.bats
+           test/system/modify.bats
+           test/system/panelize.bats
+           test/system/present.bats
+           test/system/stencil.bats
+           test/units/test_intervals.py
+           test/units/test_panelize.py
+           test/units/test_preset.py
+           test/units/test_sexpr.py
+           test/units/test_substrate.py
+           test/units/test_units.py
+           versioneer.py
+Copyright: 2020 Jan Mrázek
+License:   MIT License
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+Files:     kikit/solid/euclid3.py
+Copyright: 2006 Alex Holkner Alex.Holkner@mail.google.com
+License:   LGPL-2.1+
+ This library is free software; you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License as published by the
+ Free Software Foundation; either version 2.1 of the License, or (at your
+ option) any later version.
+ .
+ This library is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
+ for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public License
+ along with this library; if not, write to the Free Software Foundation,
+ Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public License
+ Version 2.1 can be found in `/usr/share/common-licenses/LGPL-2.1'.
+
+Files:     kikit/solid/solidpython.py
+           kikit/solid/__init__.py
+           kikit/solid/extrude_along_path.py
+           kikit/solid/objects.py
+           kikit/solid/patch_euclid.py
+           kikit/solid/py_scadparser/README.md
+           kikit/solid/py_scadparser/parsetab.py
+           kikit/solid/py_scadparser/scad_ast.py
+           kikit/solid/py_scadparser/scad_parser.py
+           kikit/solid/py_scadparser/scad_tokens.py
+           kikit/solid/screw_thread.py
+           kikit/solid/splines.py
+           kikit/solid/utils.py
+Copyright: 2009 Philipp Tiefenbacher
+           2011-2019 Evan Jones
+License:   LGPL-2.1+
+ This library is free software; you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License as published by the
+ Free Software Foundation; either version 2.1 of the License, or (at your
+ option) any later version.
+ .
+ This library is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
+ for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public License
+ along with this library; if not, write to the Free Software Foundation,
+ Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public License
+ Version 2.1 can be found in `/usr/share/common-licenses/LGPL-2.1'.
+
+#----------------------------------------------------------------------------
+# xml and html files (skipped):
+#         kikit/resources/graphics/removeRefIcon.svg
+#         kikit/resources/graphics/panelizeIcon.svg
+#         kikit/resources/graphics/kikitIcon.svg
+#         kikit/resources/present/templates/default/index.html
+#         doc/resources/partition2.svg
+#         doc/resources/tabdrawing3.svg
+#         doc/resources/tabdrawing.svg
+#         doc/resources/tabdrawing4.svg
+#         doc/resources/tabdrawing5.svg
+#         doc/resources/tabdrawing1.svg
+#         doc/resources/tabdrawing2.svg
+#         doc/resources/partition1.svg
+
+#----------------------------------------------------------------------------
+# Files marked as NO_LICENSE_TEXT_FOUND may be covered by the following
+# license/copyright files.

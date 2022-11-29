@@ -10,7 +10,21 @@ PCM_LIB_RESOURCES :=  $(shell find pcm/kikit-lib -type f -print) \
 
 .PHONY: doc clean package release test test-system test-unit
 
-all: doc package test pcm
+all:
+# doc package test pcm
+
+deb:
+	cp debian/control_both debian/control
+	# Why do I get an empty kikit here?
+	DEB_BUILD_OPTIONS=nocheck fakeroot dpkg-buildpackage -uc -b
+	fakeroot debian/rules clean
+	cp debian/control_pkg debian/control
+	DEB_BUILD_OPTIONS=nocheck fakeroot dpkg-buildpackage -uc -b
+	fakeroot debian/rules clean
+	cp debian/control_both debian/control
+
+deb_clean:
+	fakeroot debian/rules clean
 
 doc: doc/panelization.md doc/examples.md
 

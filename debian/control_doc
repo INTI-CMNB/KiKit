@@ -1,0 +1,17 @@
+Source: kikit
+Section: electronics
+Priority: optional
+Maintainer: Salvador E. Tropea <salvador@inti.gob.ar>
+Build-Depends: debhelper-compat (= 12), dh-python, python3-all
+Standards-Version: 4.5.0
+Homepage: https://github.com/yaqwsx/KiKit
+X-Python3-Version: >= 3.2
+
+Package: kikit-doc
+Architecture: all
+Multi-Arch: foreign
+Section: doc
+Depends: ${misc:Depends}
+Description: KiKit - Automation for KiCAD - Documentation
+ This package contains KiKit manuals in Markdown format
+

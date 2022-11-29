@@ -1,0 +1,6 @@
+kikit for Debian
+
+This version of KiKit includes OpenSCAD for Python (SolidPython) and its
+dependencies to make easier the installation.
+
+ -- Salvador E. Tropea <salvador@inti.gob.ar>  Tue, 29 Nov 2022 11:56:30 -0300

@@ -1,0 +1,31 @@
+Source: kikit
+Section: electronics
+Priority: optional
+Maintainer: Salvador E. Tropea <salvador@inti.gob.ar>
+Build-Depends: debhelper-compat (= 12), dh-python, python3-all
+Standards-Version: 4.5.0
+Homepage: https://github.com/yaqwsx/KiKit
+X-Python3-Version: >= 3.2
+
+Package: kikit
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${python3:Depends}, kicad (>= 6.0.0), openscad
+Suggests: kikit-doc
+Description: KiKit - Automation for KiCAD
+ KiKit is a Python library, KiCAD plugin and a CLI tool to automate several
+ tasks in a standard KiCAD workflow like:
+ .
+ - panelization of both, regular and oddly shaped, boards
+ - automated exporting manufacturing data based on manufacturer presets
+ - multi-board project in KiCAD
+ - building board presentation pages
+
+Package: kikit-doc
+Architecture: all
+Multi-Arch: foreign
+Section: doc
+Depends: ${misc:Depends}
+Description: KiKit - Automation for KiCAD - Documentation
+ This package contains KiKit manuals in Markdown format
+

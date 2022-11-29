@@ -1,0 +1,10 @@
+--- a/setup.py
++++ b/setup.py
+@@ -36,7 +36,6 @@
+     name="KiKit",
+     python_requires='>=3.7',
+     version=versioneer.get_version(),
+-    cmdclass=versioneer.get_cmdclass(),
+     author="Jan Mrázek",
+     author_email="email@honzamrazek.cz",
+     description="Automation for KiCAD boards",

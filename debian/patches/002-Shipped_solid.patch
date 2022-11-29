@@ -1,0 +1,15 @@
+--- a/kikit/stencil.py
++++ b/kikit/stencil.py
+@@ -9,6 +9,12 @@
+ from kikit.substrate import Substrate, extractRings, toShapely, linestringToKicad
+ from kikit.export import gerberImpl, pasteDxfExport
+ from kikit.export import exportSettingsJlcpcb
++# Allow importing solid from this dir
++import os
++import sys
++cur_path = os.path.abspath(os.path.dirname(__file__))
++if cur_path not in sys.path:
++    sys.path.insert(0, cur_path)
+ import solid
+ import solid.utils
+ import subprocess
