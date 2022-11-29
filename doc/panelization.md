@@ -737,7 +737,7 @@ Return a mid point of the bounding box
 ```
 millFillets(self, millRadius)
 ```
-Add fillets to inner conernes which will be produced a by mill with
+Add fillets to inner corners which will be produced by a mill with
 given radius.
 
 #### `orient`
@@ -750,8 +750,8 @@ Ensures that the substrate is oriented in a correct way.
 ```
 removeIslands(self)
 ```
-Removes all islads - pieces of substrate fully contained within outline
-of another board
+Removes all islands - pieces of substrate fully contained within the
+outline of another board
 
 #### `serialize`
 ```
@@ -768,10 +768,10 @@ Create a tab for the substrate. The tab starts at the specified origin
 vector). The tab is constructed with given width. If the substrate is
 not penetrated within maxHeight, exception is raised.
 
-When partitionLine is specified, tha tab is extended to the opposite
+When partitionLine is specified, the tab is extended to the opposite
 side - limited by the partition line. Note that if tab cannot span
-towards the partition line, then the the tab is not created - it returns
-a tuple (None, None).
+towards the partition line, then the tab is not created - it returns a
+tuple (None, None).
 
 Returns a pair tab and cut outline. Add the tab it via union - batch
 adding of geometry is more efficient.
