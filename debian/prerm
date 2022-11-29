@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+def filter(fp):
+    lns = []
+    with open(fp, 'r') as f:
+        for ln in f:
+            if 'name "kikit"' not in ln:
+               lns.append(ln)
+    with open(fp, 'w') as f:
+         f.writelines(lns)
+
+filter('/usr/share/kicad/template/fp-lib-table')
+filter('/usr/share/kicad/template/sym-lib-table')

@@ -1,0 +1,3 @@
+kikit/resources/kikit.pretty/ /usr/share/kicad/footprints/
+kikit/resources/kikit.kicad_sym /usr/share/kicad/symbols/
+pcm/kikit/plugins/__init__.py /usr/share/kicad/scripting/plugins/KiKit

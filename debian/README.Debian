@@ -3,4 +3,11 @@ kikit for Debian
 This version of KiKit includes OpenSCAD for Python (SolidPython) and its
 dependencies to make easier the installation.
 
+To use the KiKit footprints you must open KiCad and go to Preferences, Manage
+footprint libraries. Then add an entry with "kikit" as nickname and
+"${KISYSMOD}/kikit.pretty" as path.
+Similarly for the symbols add an entry named "kikit" with a path
+"${KICAD6_SYMBOL_DIR}/kikit.kicad_sym".
+Lamentably these options are local for each user.
+
  -- Salvador E. Tropea <salvador@inti.gob.ar>  Tue, 29 Nov 2022 11:56:30 -0300
