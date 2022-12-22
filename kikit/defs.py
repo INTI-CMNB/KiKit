@@ -53,10 +53,14 @@ class Layer(IntEnum):
     F_CrtYd = 47
     B_Fab = 48
     F_Fab = 49
+    User_1 = 50
+    User_2 = 51
+    User_3 = 52
+    User_4 = 53
 
     @staticmethod
     def allCu():
-        return list(range(Layer.F_Cu, Layer.B_Cu))
+        return list(range(Layer.F_Cu, Layer.B_Cu + 1))
 
 class STROKE_T(IntEnum):
     S_SEGMENT = 0
