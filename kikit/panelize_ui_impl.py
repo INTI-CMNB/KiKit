@@ -5,7 +5,7 @@ from kikit.defs import Layer
 from shapely.geometry import box
 from kikit.plugin import HookPlugin
 from kikit.text import kikitTextVars
-from kikit.units import BaseValue
+from kikit.units import BaseValue, PercentageValue
 from kikit.panelize_ui_sections import *
 from kikit.substrate import SubstrateNeighbors
 from kikit.common import resolveAnchor
@@ -32,6 +32,8 @@ def encodePreset(value):
     if value is None:
         return "none"
     if isinstance(value, BaseValue):
+        return str(value)
+    if isinstance(value, PercentageValue):
         return str(value)
     if isinstance(value, EDA_TEXT_HJUSTIFY_T) or isinstance(value, EDA_TEXT_VJUSTIFY_T):
         return writeJustify(value)
@@ -285,20 +287,20 @@ def buildTabs(preset, panel, substrates, boundarySubstrates):
             panel.buildTabAnnotationsFixed(properties["hcount"],
                 properties["vcount"], properties["hwidth"], properties["vwidth"],
                 properties["mindistance"], boundarySubstrates)
-            return panel.buildTabsFromAnnotations()
+            return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "spacing":
             panel.clearTabsAnnotations()
             panel.buildTabAnnotationsSpacing(properties["spacing"],
                 properties["hwidth"], properties["vwidth"], boundarySubstrates)
-            return panel.buildTabsFromAnnotations()
+            return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "corner":
             panel.clearTabsAnnotations()
             panel.buildTabAnnotationsCorners(properties["width"])
-            return panel.buildTabsFromAnnotations()
+            return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "full":
             return panel.buildFullTabs(properties["cutout"])
         if type == "annotation":
-            return panel.buildTabsFromAnnotations()
+            return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "plugin":
             pluginInst = properties["code"](preset, properties["arg"])
             return pluginInst.buildTabs(panel)
@@ -443,17 +445,20 @@ def buildFraming(preset, panel):
         if type == "none":
             return []
         if type == "railstb":
-            panel.makeRailsTb(framingPreset["width"], framingPreset["mintotalheight"])
+            panel.makeRailsTb(framingPreset["width"],
+                framingPreset["mintotalheight"], framingPreset["maxtotalheight"])
             addFilletAndChamfer(framingPreset, panel)
             return []
         if type == "railslr":
-            panel.makeRailsLr(framingPreset["width"], framingPreset["mintotalwidth"])
+            panel.makeRailsLr(framingPreset["width"],
+                framingPreset["mintotalwidth"], framingPreset["maxtotalwidth"])
             addFilletAndChamfer(framingPreset, panel)
             return []
         if type == "frame":
             cuts = panel.makeFrame(framingPreset["width"],
                 framingPreset["hspace"], framingPreset["vspace"],
-                framingPreset["mintotalwidth"], framingPreset["mintotalheight"])
+                framingPreset["mintotalwidth"], framingPreset["mintotalheight"],
+                framingPreset["maxtotalwidth"], framingPreset["maxtotalheight"])
             addFilletAndChamfer(framingPreset, panel)
             if framingPreset["cuts"] == "both":
                 return chain(*cuts)
@@ -465,7 +470,8 @@ def buildFraming(preset, panel):
         if type == "tightframe":
             panel.makeTightFrame(framingPreset["width"], framingPreset["slotwidth"],
                 framingPreset["hspace"], framingPreset["vspace"],
-                framingPreset["mintotalwidth"], framingPreset["mintotalheight"])
+                framingPreset["mintotalwidth"], framingPreset["mintotalheight"],
+                framingPreset["maxtotalwidth"], framingPreset["maxtotalheight"])
             panel.boardSubstrate.removeIslands()
             addFilletAndChamfer(framingPreset, panel)
             return []
@@ -640,8 +646,12 @@ def positionPanel(preset, panel):
     Position the panel on the paper
     """
     try:
-        origin = resolveAnchor(preset["anchor"])(panel.boardSubstrate.boundingBox())
-        translateVec = (-origin[0] + preset["posx"], -origin[1] + preset["posy"])
+        bBox = panel.boardSubstrate.boundingBox()
+        pageSize = panel.getPageDimensions()
+        posx = preset["posx"] * pageSize[0] if isinstance(preset["posx"], PercentageValue) else preset["posx"]
+        posy = preset["posy"] * pageSize[1] if isinstance(preset["posy"], PercentageValue) else preset["posy"]
+        origin = resolveAnchor(preset["anchor"])(bBox)
+        translateVec = (-origin[0] + posx, -origin[1] + posy)
         panel.translate(translateVec)
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'page'")

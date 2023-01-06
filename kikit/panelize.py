@@ -22,14 +22,18 @@ from collections import OrderedDict
 
 from kikit import substrate
 from kikit import units
+from kikit.kicadUtil import getPageDimensionsFromAst
 from kikit.substrate import Substrate, linestringToKicad, extractRings
-from kikit.defs import STROKE_T, Layer, EDA_TEXT_HJUSTIFY_T, EDA_TEXT_VJUSTIFY_T, PAPER_SIZES
+from kikit.defs import PAPER_DIMENSIONS, STROKE_T, Layer, EDA_TEXT_HJUSTIFY_T, EDA_TEXT_VJUSTIFY_T, PAPER_SIZES
 from kikit.common import *
-from kikit.sexpr import parseSexprF, SExpr, Atom
+from kikit.sexpr import parseSexprF, SExpr, Atom, findNode
 from kikit.annotations import AnnotationReader, TabAnnotation
 from kikit.drc import DrcExclusion, readBoardDrcExclusions, serializeExclusion
 
 class PanelError(RuntimeError):
+    pass
+
+class TooLargeError(PanelError):
     pass
 
 def identity(x):
@@ -357,7 +361,10 @@ def polygonToZone(polygon, board):
         zone.Outline().AddHole(linestringToKicad(boundary))
     return zone
 
-def buildTabs(substrate, partitionLines, tabAnnotations):
+def buildTabs(substrate: Substrate,
+              partitionLines: Union[GeometryCollection, LineString],
+              tabAnnotations: Iterable[TabAnnotation], fillet: KiLength = 0) -> \
+                Tuple[List[Polygon], List[LineString]]:
     """
     Given substrate, partitionLines of the substrate and an iterable of tab
     annotations, build tabs. Note that if the tab does not hit the partition
@@ -368,7 +375,7 @@ def buildTabs(substrate, partitionLines, tabAnnotations):
     tabs, cuts = [], []
     for annotation in tabAnnotations:
         t, c = substrate.tab(annotation.origin, annotation.direction,
-            annotation.width, partitionLines, annotation.maxLength)
+            annotation.width, partitionLines, annotation.maxLength, fillet)
         if t is not None:
             tabs.append(t)
             cuts.append(c)
@@ -541,9 +548,9 @@ class Panel:
         """
         boardsEdges = list(chain(*[sub.serialize(reconstructArcs) for sub in self.substrates]))
 
-        surrounding = self.boardSubstrate.substrates.difference(
+        surrounding = self.boardSubstrate.substrates.simplify(fromMm(0.01)).difference(
             shapely.ops.unary_union(list(
-                sub.substrates.buffer(fromMm(0.2)) for sub in self.substrates)))
+                sub.substrates.buffer(fromMm(0.2)) for sub in self.substrates)).simplify(fromMm(0.01)))
         surroundingSubstrate = Substrate([])
         surroundingSubstrate.union(surrounding)
         boardsEdges += surroundingSubstrate.serialize()
@@ -728,6 +735,14 @@ class Panel:
         if not isinstance(board, pcbnew.BOARD):
             board = pcbnew.LoadBoard(board)
         self.board.SetPageSettings(board.GetPageSettings())
+        self.pageSize = None
+
+        # What follows is a hack as KiCAD has no API for page access. Therefore,
+        # we have to read out the page size from the source board and save it so
+        # we can recover it.
+        with open(board.GetFileName(), "r") as f:
+            tree = parseSexprF(f, limit=10) # Introduce limit to speed up parsing
+        self._inheritedPageDimensions = getPageDimensionsFromAst(tree)
 
     def setPageSize(self, size: Union[str, Tuple[int, int]] ) -> None:
         """
@@ -737,6 +752,23 @@ class Panel:
             if size not in PAPER_SIZES:
                 raise RuntimeError(f"Unknown paper size: {size}")
         self.pageSize = size
+
+    def getPageDimensions(self) -> Tuple[KiLength, KiLength]:
+        """
+        Get page size in KiCAD units for the current panel
+        """
+        if self.pageSize is None:
+            return self._inheritedPageDimensions
+        if isinstance(self.pageSize, tuple):
+            return self.pageSize
+        if isinstance(self.pageSize, str):
+            if self.pageSize.endswith("-portrait"):
+                # Portrait
+                pageSize = PAPER_DIMENSIONS[self.pageSize.split("-")[0]]
+                return pageSize[1], pageSize[0]
+            else:
+                return PAPER_DIMENSIONS[self.pageSize]
+        raise RuntimeError("Unknown page dimension - this is probably a bug and you should report it.")
 
     def setProperties(self, properties):
         """
@@ -1124,7 +1156,8 @@ class Panel:
         return self.substrates[substrateCount:]
 
     def makeFrame(self, width: KiLength, hspace: KiLength, vspace: KiLength,
-                  minWidth: KiLength=0, minHeight: KiLength=0) \
+                  minWidth: KiLength = 0, minHeight: KiLength = 0,
+                  maxWidth: Optional[KiLength] = None, maxHeight: Optional[KiLength] = None) \
                      -> Tuple[Iterable[LineString], Iterable[LineString]]:
         """
         Build a frame around the boards. Specify width and spacing between the
@@ -1145,9 +1178,21 @@ class Panel:
 
         minHeight - if the panel doesn't meet this height, it is extended
 
+        maxWidth - if the panel doesn't meet this width, TooLargeError is raised
+
+        maxHeight - if the panel doesn't meet this height, TooLargeHeight is raised
         """
         frameInnerRect = expandRect(shpBoxToRect(self.boardsBBox()), hspace, vspace)
         frameOuterRect = expandRect(frameInnerRect, width)
+
+        sizeErrors = []
+        if maxWidth is not None and frameOuterRect.GetWidth() > maxWidth:
+            sizeErrors.append(f"Panel width {frameOuterRect.GetWidth() / units.mm} mm exceeds the limit {maxWidth / units.mm} mm")
+        if maxHeight is not None and frameOuterRect.GetHeight() > maxHeight:
+            sizeErrors.append(f"Panel height {frameOuterRect.GetHeight() / units.mm} mm exceeds the limit {maxHeight / units.mm} mm")
+        if len(sizeErrors) > 0:
+            raise TooLargeError(f"Panel doesn't meet size constraints:\n" + "\n".join(f"- {x}" for x in sizeErrors))
+
         if frameOuterRect.GetWidth() < minWidth:
             diff = minWidth - frameOuterRect.GetWidth()
             frameOuterRect.SetX(frameOuterRect.GetX() - diff // 2)
@@ -1170,7 +1215,8 @@ class Panel:
 
     def makeTightFrame(self, width: KiLength, slotwidth: KiLength,
                       hspace: KiLength, vspace: KiLength,  minWidth: KiLength=0,
-                      minHeight: KiLength=0) -> None:
+                      minHeight: KiLength=0, maxWidth: Optional[KiLength] = None,
+                      maxHeight: Optional[KiLength] = None) -> None:
         """
         Build a full frame with board perimeter milled out.
         Add your boards to the panel first using appendBoard or makeGrid.
@@ -1189,8 +1235,11 @@ class Panel:
 
         minHeight - if the panel doesn't meet this height, it is extended
 
+        maxWidth - if the panel doesn't meet this width, TooLargeError is raised
+
+        maxHeight - if the panel doesn't meet this height, TooLargeHeight is raised
         """
-        self.makeFrame(width, hspace, vspace, minWidth, minHeight)
+        self.makeFrame(width, hspace, vspace, minWidth, minHeight, maxWidth, maxHeight)
         boardSlot = GeometryCollection()
         for s in self.substrates:
             boardSlot = boardSlot.union(s.exterior())
@@ -1198,26 +1247,35 @@ class Panel:
         frameBody = box(*self.boardSubstrate.bounds()).difference(boardSlot)
         self.appendSubstrate(frameBody)
 
-    def makeRailsTb(self, thickness: KiLength, minHeight: KiLength=0):
+    def makeRailsTb(self, thickness: KiLength, minHeight: KiLength = 0,
+                    maxHeight: Optional[KiLength] = None) -> None:
         """
         Adds a rail to top and bottom. You can specify minimal height the panel
-        has to feature.
+        has to feature. You can also specify maximal height of the panel. If the
+        height would be exceeded, TooLargeError is raised.
         """
         minx, miny, maxx, maxy = self.panelBBox()
-        if maxy - miny + 2 * thickness < minHeight:
+        height = maxy - miny + 2 * thickness
+        if maxHeight is not None and height > maxHeight:
+            raise TooLargeError(f"Panel height {height / units.mm} mm exceeds the limit {maxHeight / units.mm} mm")
+        if height < minHeight:
             thickness = (minHeight - maxy + miny) // 2
         topRail = box(minx, maxy, maxx, maxy + thickness)
         bottomRail = box(minx, miny, maxx, miny - thickness)
         self.appendSubstrate(topRail)
         self.appendSubstrate(bottomRail)
 
-    def makeRailsLr(self, thickness: KiLength, minWidth: KiLength=0):
+    def makeRailsLr(self, thickness: KiLength, minWidth: KiLength = 0,
+                    maxWidth: Optional[KiLength] = None) -> None:
         """
         Adds a rail to left and right. You can specify minimal width the panel
         has to feature.
         """
         minx, miny, maxx, maxy = self.panelBBox()
-        if maxx - minx + 2 * thickness < minWidth:
+        width = maxx - minx + 2 * thickness
+        if maxWidth is not None and width > maxWidth:
+            raise TooLargeError(f"Panel width {width / units.mm} mm exceeds the limit {maxWidth / units.mm} mm")
+        if width < minWidth:
             thickness = (minWidth - maxx + minx) // 2
         leftRail = box(minx - thickness, miny, minx, maxy)
         rightRail = box(maxx, miny, maxx + thickness, maxy)
@@ -1404,7 +1462,7 @@ class Panel:
             s.annotations = list(
                 filter(lambda x: not isinstance(x, TabAnnotation), s.annotations))
 
-    def buildTabsFromAnnotations(self):
+    def buildTabsFromAnnotations(self, fillet: KiLength) -> List[LineString]:
         """
         Given annotations for the individual substrates, create tabs for them.
         Tabs are appended to the panel, cuts are returned.
@@ -1413,7 +1471,7 @@ class Panel:
         """
         tabs, cuts = [], []
         for s in self.substrates:
-            t, c = buildTabs(s, s.partitionLine, s.annotations)
+            t, c = buildTabs(s, s.partitionLine, s.annotations, fillet)
             tabs.extend(t)
             cuts.extend(c)
         self.boardSubstrate.union(tabs)
