@@ -1,5 +1,5 @@
 import click
-from pcbnewTransition import pcbnew, isV6
+from pcbnewTransition import pcbnew
 import csv
 import os
 import sys
@@ -23,10 +23,14 @@ def collectBom(components, lscsFields, ignore):
             continue
         if hasattr(c, "in_bom") and not c.in_bom:
             continue
+        if hasattr(c, "on_board") and not c.on_board:
+            continue
+        if hasattr(c, "dnp") and c.dnp:
+            continue
         orderCode = None
         for fieldName in lscsFields:
             orderCode = getField(c, fieldName)
-            if orderCode is not None:
+            if orderCode is not None and orderCode.strip() != "":
                 break
         cType = (
             getField(c, "Value"),
@@ -37,7 +41,7 @@ def collectBom(components, lscsFields, ignore):
     return bom
 
 def bomToCsv(bomData, filename):
-    with open(filename, "w", newline="") as csvfile:
+    with open(filename, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Comment", "Designator", "Footprint", "LCSC"])
         for cType, references in bomData.items():
@@ -45,8 +49,9 @@ def bomToCsv(bomData, filename):
             # the BOM into multiple lines. Let's make the chunks by 100 just to
             # be sure.
             CHUNK_SIZE = 100
+            sortedReferences = sorted(references, key=naturalComponentKey)
             for i in range(0, len(references), CHUNK_SIZE):
-                refChunk = references[i:i+CHUNK_SIZE]
+                refChunk = sortedReferences[i:i+CHUNK_SIZE]
                 value, footprint, lcsc = cType
                 writer.writerow([value, ",".join(refChunk), footprint, lcsc])
 
@@ -71,7 +76,8 @@ def exportJlcpcb(board, outputdir, assembly, schematic, ignore, field,
     gerberdir = os.path.join(outputdir, "gerber")
     shutil.rmtree(gerberdir, ignore_errors=True)
     gerberImpl(board, gerberdir)
-    archiveName = nametemplate.format("gerbers")
+
+    archiveName = expandNameTemplate(nametemplate, "gerbers", loadedBoard)
     shutil.make_archive(os.path.join(outputdir, archiveName), "zip", outputdir, "gerber")
 
     if not assembly:
@@ -103,5 +109,5 @@ def exportJlcpcb(board, outputdir, assembly, schematic, ignore, field,
     if missingFields and missingerror:
         sys.exit("There are components with missing ordercode, aborting")
 
-    posDataToFile(posData, os.path.join(outputdir, nametemplate.format("pos") + ".csv"))
-    bomToCsv(bom, os.path.join(outputdir, nametemplate.format("bom") + ".csv"))
+    posDataToFile(posData, os.path.join(outputdir, expandNameTemplate(nametemplate, "pos", loadedBoard) + ".csv"))
+    bomToCsv(bom, os.path.join(outputdir, expandNameTemplate(nametemplate, "bom", loadedBoard) + ".csv"))

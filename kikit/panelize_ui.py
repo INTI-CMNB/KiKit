@@ -234,11 +234,11 @@ def doPanelization(input, output, preset, plugins=[]):
     """
     from kikit import panelize_ui_impl as ki
     from kikit.panelize import Panel
-    from pcbnewTransition.transition import isV6, pcbnew
-    from pcbnew import LoadBoard
+    from pcbnewTransition.transition import pcbnew
+    from pcbnewTransition.pcbnew import LoadBoard
     from itertools import chain
 
-    if preset["debug"]["deterministic"] and isV6():
+    if preset["debug"]["deterministic"]:
         pcbnew.KIID.SeedGenerator(42)
     if preset["debug"]["drawtabfail"]:
         import kikit.substrate
@@ -326,14 +326,15 @@ def separate(input, output, source, page, debug, keepannotations, preservearcs):
     try:
         from kikit import panelize_ui_impl as ki
         from kikit.panelize import Panel
-        from pcbnewTransition.transition import isV6, pcbnew
-        from pcbnew import LoadBoard, wxPointMM
+        from kikit.units import mm
+        from pcbnewTransition import pcbnew
+        from pcbnewTransition.pcbnew import LoadBoard, VECTOR2I
         from kikit.common import fakeKiCADGui
         app = fakeKiCADGui()
 
         preset = ki.obtainPreset([], validate=False, source=source, page=page, debug=debug)
 
-        if preset["debug"]["deterministic"] and isV6():
+        if preset["debug"]["deterministic"]:
             pcbnew.KIID.SeedGenerator(42)
 
         board = LoadBoard(input)
@@ -344,7 +345,7 @@ def separate(input, output, source, page, debug, keepannotations, preservearcs):
         panel.inheritProperties(board)
         panel.inheritTitleBlock(board)
 
-        destination = wxPointMM(150, 100)
+        destination = VECTOR2I(150 * mm, 100 * mm)
         panel.appendBoard(input, destination, sourceArea,
             interpretAnnotations=(not keepannotations))
         ki.setStackup(preset["source"], panel)

@@ -1,5 +1,5 @@
 import click
-from pcbnewTransition import pcbnew, isV6
+from pcbnewTransition import pcbnew
 import csv
 import os
 import re
@@ -45,6 +45,10 @@ def collectBom(components, manufacturerFields, partNumberFields,
             continue
         if hasattr(c, "in_bom") and not c.in_bom:
             continue
+        if hasattr(c, "on_board") and not c.on_board:
+            continue
+        if hasattr(c, "dnp") and c.dnp:
+            continue
         manufacturer = None
         for manufacturerName in manufacturerFields:
             manufacturer = getField(c, manufacturerName)
@@ -87,14 +91,8 @@ def collectBom(components, manufacturerFields, partNumberFields,
         bom[cType] = bom.get(cType, []) + [reference]
     return bom
 
-def natural_sort(l):
-    #https://stackoverflow.com/questions/4836710/is-there-a-built-in-function-for-string-natural-sort
-    convert = lambda text: int(text) if text.isdigit() else text.lower()
-    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
-    return sorted(l, key = alphanum_key)
-
 def bomToCsv(bomData, filename, nBoards, types):
-    with open(filename, "w", newline="") as csvfile:
+    with open(filename, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Item #", "Designator", "Qty", "Manufacturer",
                          "Mfg Part #", "Description / Value", "Footprint",
@@ -105,9 +103,9 @@ def bomToCsv(bomData, filename, nBoards, types):
         for cType, references in bomData.items():
             tmp[references[0]] = (references, cType)
 
-        for i in natural_sort(tmp):
+        for i in sorted(tmp, key=naturalComponentKey):
             references, cType = tmp[i]
-            references = natural_sort(references)
+            references = sorted(references, key=naturalComponentKey)
             description, footprint, manufacturer, partNumber, notes, solderType = cType
             if solderType is None:
                 solderType = types[references[0]]
@@ -137,7 +135,8 @@ def exportPcbway(board, outputdir, assembly, schematic, ignore,
     gerberdir = os.path.join(outputdir, "gerber")
     shutil.rmtree(gerberdir, ignore_errors=True)
     gerberImpl(board, gerberdir, settings=exportSettingsPcbway)
-    archiveName = nametemplate.format("gerbers")
+
+    archiveName = expandNameTemplate(nametemplate, "gerbers", loadedBoard)
     shutil.make_archive(os.path.join(outputdir, archiveName), "zip", outputdir, "gerber")
 
     if not assembly:
@@ -172,6 +171,6 @@ def exportPcbway(board, outputdir, assembly, schematic, ignore,
         sys.exit("There are components with missing ordercode, aborting")
 
     posData = collectPosData(loadedBoard, correctionFields, bom=components, correctionFile=correctionpatterns)
-    posDataToFile(posData, os.path.join(outputdir, nametemplate.format("pos") + ".csv"))
+    posDataToFile(posData, os.path.join(outputdir, expandNameTemplate(nametemplate, "pos", loadedBoard) + ".csv"))
     types = collectSolderTypes(loadedBoard)
-    bomToCsv(bom, os.path.join(outputdir, nametemplate.format("bom") + ".csv"), nboards, types)
+    bomToCsv(bom, os.path.join(outputdir, expandNameTemplate(nametemplate, "bom", loadedBoard) + ".csv"), nboards, types)

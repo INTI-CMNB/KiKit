@@ -6,6 +6,7 @@ from kikit.panelize_ui_impl import loadPresetChain, obtainPreset, mergePresets
 from kikit import panelize_ui
 from kikit.panelize import appendItem
 from kikit.common import PKG_BASE
+from .common import initDialog, destroyDialog
 import kikit.panelize_ui_sections
 import wx
 import json
@@ -70,11 +71,9 @@ def transplateBoard(source, target):
     for n in [n for _, n in source.GetNetInfo().NetsByNetcode().items()]:
         targetNetinfo.AppendNet(n)
 
-    if isV6():
-        d = target.GetDesignSettings()
-        d.CloneFrom(source.GetDesignSettings())
-    else:
-        target.SetDesignSettings(source.GetDesignSettings())
+    d = target.GetDesignSettings()
+    d.CloneFrom(source.GetDesignSettings())
+
     target.SetProperties(source.GetProperties())
     target.SetPageSettings(source.GetPageSettings())
     target.SetTitleBlock(source.GetTitleBlock())
@@ -549,7 +548,7 @@ class PanelizeDialog(wx.Dialog):
                 defaultPreset = loadPresetChain([":default"])
                 preset = self.collectReleventPreset()
                 presetUpdates = presetDifferential(defaultPreset, preset)
-                with open(pathname, "w") as file:
+                with open(pathname, "w", encoding="utf-8") as file:
                     json.dump(presetUpdates, file, indent=4)
                 wx.MessageBox(f"Configuration exported to {pathname}", "Success",
                     style=wx.OK | wx.ICON_INFORMATION, parent=self)
@@ -565,7 +564,7 @@ class PanelizeDialog(wx.Dialog):
                 return
             pathname = fileDialog.GetPath()
             try:
-                with open(pathname, "r") as file:
+                with open(pathname, "r", encoding="utf-8") as file:
                     preset = json.load(file)
                     self.populateInitialValue(preset)
                     self.OnChange()
@@ -589,6 +588,7 @@ class PanelizePlugin(pcbnew.ActionPlugin):
 
     def Run(self):
         try:
+            dialog = None
             if not self.dirty and not pcbnew.GetBoard().IsEmpty():
                 dlg = wx.MessageDialog(
                     None,
@@ -601,8 +601,7 @@ class PanelizePlugin(pcbnew.ActionPlugin):
                 dlg.Destroy()
                 if ret == wx.ID_NO:
                     return
-
-            dialog = PanelizeDialog(None, pcbnew.GetBoard(), self.preset)
+            dialog = initDialog(lambda: PanelizeDialog(None, pcbnew.GetBoard(), self.preset))
             dialog.ShowModal()
             self.preset = dialog.collectPreset(includeInput=True)
             self.dirty = self.dirty or dialog.dirty
@@ -612,8 +611,7 @@ class PanelizePlugin(pcbnew.ActionPlugin):
             dlg.ShowModal()
             dlg.Destroy()
         finally:
-            if "dialog" in locals():
-                dialog.Destroy()
+            destroyDialog(dialog)
 
 
 plugin = PanelizePlugin

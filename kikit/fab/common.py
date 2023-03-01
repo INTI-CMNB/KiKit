@@ -2,16 +2,17 @@ import csv
 from dataclasses import dataclass
 import re
 from typing import OrderedDict
-from pcbnewTransition import pcbnew, isV6
+from pcbnewTransition import pcbnew, isV6, isV7
 from math import sin, cos, radians
 from kikit.common import *
 from kikit.defs import MODULE_ATTR_T
 from kikit.drc_ui import ReportLevel
 from kikit import drc
 from kikit import eeschema, eeschema_v6
+from kikit.text import kikitTextVars
 import sys
 
-if isV6():
+if isV6() or isV7():
     from kikit import eeschema_v6 # import getField, getUnit, getReference
 from kikit import eeschema #import getField, getUnit, getReference
 
@@ -39,10 +40,7 @@ def getReference(component):
         return eeschema_v6.getReference(component)
     return eeschema.getReference(component)
 
-
 def ensurePassingDrc(board):
-    if not isV6():
-        return # v5 cannot check DRC
     failed = drc.runImpl(board,
         useMm=True,
         ignoreExcluded=True,
@@ -80,14 +78,14 @@ def layerToSide(layer):
 
 def footprintPosition(footprint, placeOffset, compensation):
     pos = footprint.GetPosition() - placeOffset
-    angle = -radians(footprint.GetOrientation() / 10.0)
+    angle = -footprint.GetOrientation().AsRadians()
     x = compensation[0] * cos(angle) - compensation[1] * sin(angle)
     y = compensation[0] * sin(angle) + compensation[1] * cos(angle)
-    pos += wxPoint(fromMm(x), fromMm(y))
+    pos += VECTOR2I(fromMm(x), fromMm(y))
     return pos
 
 def footprintOrientation(footprint, compensation):
-    return (footprint.GetOrientation() / 10 + compensation[2]) % 360
+    return (footprint.GetOrientation().AsDegrees() + compensation[2]) % 360
 
 def parseCompensation(compensation):
     comps = [float(x) for x in compensation.split(";")]
@@ -103,10 +101,7 @@ def defaultFootprintY(footprint, placeOffset, compensation):
     return -toMm(footprintPosition(footprint, placeOffset, compensation)[1])
 
 def excludeFromPos(footprint):
-    if isV6():
-        return footprint.GetAttributes() & pcbnew.FP_EXCLUDE_FROM_POS_FILES
-    else:
-        return footprint.GetAttributes() & MODULE_ATTR_T.MOD_VIRTUAL
+    return footprint.GetAttributes() & pcbnew.FP_EXCLUDE_FROM_POS_FILES
 
 def readCorrectionPatterns(filename):
     """
@@ -204,10 +199,10 @@ def collectPosData(board, correctionFields, posFilter=lambda x : True,
              footprintOrientation(footprint, getCompensation(footprint))) for footprint in footprints]
 
 def posDataToFile(posData, filename):
-    with open(filename, "w", newline="") as csvfile:
+    with open(filename, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Designator", "Mid X", "Mid Y", "Layer", "Rotation"])
-        for line in sorted(posData, key=lambda x: x[0]):
+        for line in sorted(posData, key=lambda x: naturalComponentKey(x[0])):
             line = list(line)
             for i in [1, 2, 4]:
                 line[i] = f"{line[i]:.2f}" # Most Fab houses expect only 2 decimal digits
@@ -226,3 +221,15 @@ def ensureValidSch(filename):
 def ensureValidBoard(filename):
     if not isValidBoardPath(filename):
         raise RuntimeError(f"The path {filename} is not a valid KiCAD PCB file")
+
+def expandNameTemplate(template: str, filetype: str, board: pcbnew.BOARD) -> str:
+
+    textVars = kikitTextVars(board)
+    try:
+        return template.format(filetype, **textVars)
+    except KeyError as e:
+        raise RuntimeError(f"Unknown variable {e} in --nametemplate: {template}")
+
+def naturalComponentKey(reference: str) -> Tuple[str, int]:
+    text, num = splitOn(reference, lambda x: not x.isdigit())
+    return str(text), int(num)

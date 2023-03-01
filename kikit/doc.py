@@ -61,18 +61,10 @@ def panelizeAndDraw(name, command):
     dirname = tempfile.mkdtemp()
     output = os.path.join(dirname, "x.kicad_pcb")
     try:
-        outimage = f"doc/resources/{name}.png"
-        subprocess.run(command + [output], check=True, capture_output=True)
-
-        r = subprocess.run(["pcbdraw", "plot", "--help"], capture_output=True)
-        if r.returncode == 0:
-            # We have a new PcbDraw
-            r = subprocess.run(["pcbdraw", "plot", "--vcuts", "Cmts.User", "--silent", output,
-                    outimage], check=True, capture_output=True)
-        else:
-            # We have an old PcbDraw
-            r = subprocess.run(["pcbdraw", "--vcuts", "--silent", output,
-                    outimage], check=True, capture_output=True)
+        outimage = f"docs/resources/{name}.png"
+        subprocess.run(command + [output, "--debug", "trace: true"], check=True, capture_output=True)
+        r = subprocess.run(["pcbdraw", "plot", "--vcuts", "Cmts.User", "--silent", output,
+                outimage], check=True, capture_output=True)
         subprocess.run(["convert", outimage, "-define",
             "png:include-chunk=none", outimage], check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
@@ -80,7 +72,8 @@ def panelizeAndDraw(name, command):
         print("Stdout: " + e.stdout.decode("utf8"), file=sys.stderr)
         print("Stderr: " + e.stderr.decode("utf8"), file=sys.stderr)
         sys.exit(1)
-    shutil.rmtree(dirname)
+    finally:
+        shutil.rmtree(dirname)
 
 
 runExampleThreads = []
@@ -99,26 +92,36 @@ def runBoardExample(name, args):
     # copy-paste-ready form
     args[0] = ["kikit"] + args[0]
     args[-1] = args[-1] + ["panel.kicad_pcb"]
-    print("```")
-    print("# Linux")
+
+    print('!!! example "Panelization command"\n')
+
+    print('    === "Linux/macOS"')
+    print("        ```")
     for i, c in enumerate(args):
-        if i != 0:
-            print("    ", end="")
+        if i == 0:
+            print("        ", end="")
+        else:
+            print("            ", end="")
         end = "\n" if i + 1 == len(args) else " \\\n"
         print(" ".join(quotePosix(c)), end=end)
-    print("\n# Windows")
+    print("        ```")
+    print("")
+    print('    === "Windows"')
+    print("        ```")
     for i, c in enumerate(args):
-        if i != 0:
-            print("    ", end="")
+        if i == 0:
+            print("        ", end="")
+        else:
+            print("            ", end="")
         end = "\n" if i + 1 == len(args) else " ^\n"
         print(" ".join(quoteWindows(c)), end=end)
-    print("```\n")
-    print("![{0}](resources/{0}.png)".format(name))
+    print("        ```\n")
+    print("    ![{0}](../resources/{0}.png)".format(name))
 
-    t = threading.Thread(target=lambda: panelizeAndDraw(name, realArgs))
-    t.start()
-    global runExampleThreads
-    runExampleThreads.append(t)
+    # t = threading.Thread(target=lambda: panelizeAndDraw(name, realArgs))
+    # t.start()
+    # global runExampleThreads
+    # runExampleThreads.append(t)
 
 def runScriptingExample(name, args):
     """
@@ -134,7 +137,7 @@ def runScriptingExample(name, args):
         end = "\n" if i + 1 == len(args) else " \\\n"
         print(" ".join(quote(c)), end=end)
     print("```\n")
-    print("![{0}](resources/{0}.png)".format(name))
+    print("![{0}](../resources/{0}.png)".format(name))
 
     t = threading.Thread(target=lambda: panelizeAndDraw(name, realArgs))
     t.start()

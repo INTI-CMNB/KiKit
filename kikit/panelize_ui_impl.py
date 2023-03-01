@@ -5,7 +5,7 @@ from kikit.defs import Layer
 from shapely.geometry import box
 from kikit.plugin import HookPlugin
 from kikit.text import kikitTextVars
-from kikit.units import BaseValue, PercentageValue
+from kikit.units import BaseValue, BaseAngle, PercentageValue
 from kikit.panelize_ui_sections import *
 from kikit.substrate import SubstrateNeighbors
 from kikit.common import resolveAnchor
@@ -31,7 +31,7 @@ def encodePreset(value):
         return getattr(value, "__kikit_preset_repr")
     if value is None:
         return "none"
-    if isinstance(value, BaseValue):
+    if isinstance(value, BaseValue) or isinstance(value, BaseAngle):
         return str(value)
     if isinstance(value, PercentageValue):
         return str(value)
@@ -114,7 +114,7 @@ def loadPreset(path):
         if not os.path.exists(path):
             raise RuntimeError(f"Uknown built-in preset '{presetName}'")
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             preset = commentjson.load(f)
             validatePresetLayout(preset)
             return preset
@@ -188,9 +188,9 @@ def readSourceArea(specification, board):
             ref = specification["ref"]
             return expandRect(extractSourceAreaByAnnotation(board, ref), tolerance)
         if type == "rectangle":
-            tl = wxPoint(specification["tlx"], specification["tly"])
-            br = wxPoint(specification["brx"], specification["bry"])
-            return expandRect(wxRect(tl, br), tolerance)
+            tl = VECTOR2I(specification["tlx"], specification["tly"])
+            br = VECTOR2I(specification["brx"], specification["bry"])
+            return expandRect(BOX2I(tl, (br - tl)), tolerance)
         raise PresetError(f"Unknown type '{type}' of source specification.")
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'source'")
@@ -248,10 +248,12 @@ def buildLayout(preset, panel, sourceBoard, sourceArea):
                 hbonewidth=layout["hbackbone"],
                 vbonewidth=layout["vbackbone"],
                 hboneskip=layout["hboneskip"],
-                vboneskip=layout["vboneskip"])
+                vboneskip=layout["vboneskip"],
+                hbonefirst=layout["hbonefirst"],
+                vbonefirst=layout["vbonefirst"])
             substrates = panel.makeGrid(
                 boardfile=sourceBoard, sourceArea=sourceArea,
-                rows=layout["rows"], cols=layout["cols"], destination=wxPointMM(0, 0),
+                rows=layout["rows"], cols=layout["cols"], destination=VECTOR2I(0, 0),
                 rotation=layout["rotation"], placer=placer,
                 netRenamePattern=layout["renamenet"], refRenamePattern=layout["renameref"],
                 bakeText=layout["baketext"])
@@ -298,7 +300,7 @@ def buildTabs(preset, panel, substrates, boundarySubstrates):
             panel.buildTabAnnotationsCorners(properties["width"])
             return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "full":
-            return panel.buildFullTabs(properties["cutout"])
+            return panel.buildFullTabs(properties["cutout"], properties["patchcorners"])
         if type == "annotation":
             return panel.buildTabsFromAnnotations(properties["fillet"])
         if type == "plugin":
@@ -315,7 +317,8 @@ def buildBackBone(layout, panel, substrates, frameSpace):
     try:
         return panel.renderBackbone(layout["vbackbone"], layout["hbackbone"],
                                     layout["vbonecut"], layout["hbonecut"],
-                                    layout["vboneskip"], layout["hboneskip"])
+                                    layout["vboneskip"], layout["hboneskip"],
+                                    layout["vbonefirst"], layout["hbonefirst"])
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'layout'")
 
@@ -420,19 +423,19 @@ def addFilletAndChamfer(preset, panel):
     """
     Add chamfer of frame based on the preset
     """
-    chamfer = preset["chamfer"]
-    if chamfer < 0:
-        raise PresetError(f"Invalid chamfer value specified: {chamfer}")
+    chamferWidth, chamferHeight = preset["chamferwidth"], preset["chamferheight"]
+    if chamferWidth < 0 or chamferHeight < 0:
+        raise PresetError(f"Invalid chamfer value specified: [{chamferWidth}, {chamferHeight}]")
     fillet = preset["fillet"]
     if fillet < 0:
         raise PresetError(f"Invalid fillet value specified: {fillet}")
-    if chamfer != 0 and fillet != 0:
+    if (chamferWidth != 0 or chamferHeight != 0) and fillet != 0:
         raise PresetError("You cannot specify both, chamfer and fillet. Set one of them to 0.")
 
     if fillet > 0:
         panel.addCornerFillets(fillet)
-    if chamfer > 0:
-        panel.addCornerChamfers(chamfer)
+    if chamferWidth > 0 or chamferHeight > 0:
+        panel.addCornerChamfers(chamferWidth, chamferHeight)
 
 
 def buildFraming(preset, panel):
@@ -521,11 +524,12 @@ def buildFiducials(preset, panel):
             return pluginInst.buildFiducials(panel)
         hoffset, voffset = fidPreset["hoffset"], fidPreset["voffset"]
         coppersize, opening = fidPreset["coppersize"], fidPreset["opening"]
+        paste = fidPreset["paste"]
         if type == "3fid":
-            panel.addCornerFiducials(3, hoffset, voffset, coppersize, opening)
+            panel.addCornerFiducials(3, hoffset, voffset, coppersize, opening, paste)
             return
         if type == "4fid":
-            panel.addCornerFiducials(4, hoffset, voffset, coppersize, opening)
+            panel.addCornerFiducials(4, hoffset, voffset, coppersize, opening, paste)
             return
         raise PresetError(f"Unknown type '{type}' of fiducial specification.")
     except KeyError as e:
@@ -549,7 +553,7 @@ def buildText(preset, panel):
             raise RuntimeError(f"Unknown variable {e} in text:\n{preset['text']}") from None
         if type == "simple":
             origin = resolveAnchor(preset["anchor"])(panel.boardSubstrate.boundingBox())
-            origin += wxPoint(preset["hoffset"], preset["voffset"])
+            origin += VECTOR2I(preset["hoffset"], preset["voffset"])
 
             panel.addText(
                 text=text,
@@ -600,14 +604,21 @@ def buildPostprocessing(preset, panel):
         type = preset["type"]
         if type != "auto":
             raise PresetError(f"Unknown type '{type}' of postprocessing specification.")
+        if preset["millradius"] > 0 and preset["millradiusouter"] > 0:
+            raise PresetError("You cannot specify both, millradius and millradiusouter")
         if preset["millradius"] > 0:
             panel.addMillFillets(preset["millradius"])
+        if preset["millradiusouter"] > 0:
+            panel.addTabMillFillets(preset["millradiusouter"])
         if preset["copperfill"]:
             panel.copperFillNonBoardAreas()
         if preset["origin"]:
-            origin = resolveAnchor(preset["origin"])(panel.boardSubstrate.boundingBox())
+            bBox = panel.boardSubstrate.boundingBox()
+            origin = resolveAnchor(preset["origin"])(bBox)
             panel.setAuxiliaryOrigin(origin)
             panel.setGridOrigin(origin)
+        if preset["dimensions"]:
+            panel.addPanelDimensions(Layer.Dwgs_User, fromMm(5))
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'postprocessing'")
 

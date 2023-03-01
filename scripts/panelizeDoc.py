@@ -43,8 +43,7 @@ a = 1 * rad   # 1 radian
 You can also use functions `{header(panelize.fromMm)}` and
 `{header(panelize.toMm)}` to convert to/from them if you like them more. You are
 also encouraged to use the functions and objects the native KiCAD Python API
-offers, e.g.: {'`, `'.join([header(pcbnew.wxPoint), header(pcbnew.wxPointMM),
-              header(pcbnew.wxRect), header(pcbnew.wxRectMM)])}.
+offers, e.g.: {'`, `'.join([header(pcbnew.VECTOR2I),header(pcbnew.BOX2I)])}.
 """)
 
 print(
@@ -64,7 +63,7 @@ use tab generator.
 
 To generate a piece of a substrate, create a shapely.Polygon. Then add the piece
 of substrate via `panelize.Panel.appendSubstrate`. This method also accepts a
-`wxRect` for convenience.
+`BOX2I` for convenience.
 
 The tab generator is available via `panelize.Panel.boardSubstrate.tab`. This
 method takes an origin point, direction, and tab width. It tries to build a tab
@@ -76,7 +75,7 @@ choice was made as batch adding of substrates is more efficient. Therefore, you
 are advised to first generate all the tabs and then append them to the board.
 
 You read more about the algorithms for generating tabs in a separate document
-[understanding tabs](understandingTabs.md).
+[understanding tabs](tabs.md).
 
 ## Cuts
 
@@ -112,7 +111,7 @@ This class has the following relevant members:
   original outline (and e.g., generate tabs accroding to it).
 - `boardSubstrate` - `kikit.substrate.Substrate` of the whole panel.
 - `backboneLines` - a list of lines representing backbone candidates. Read more
-  about it in [understanding tabs](understandingTabs.md).
+  about it in [understanding tabs](tabs.md).
 """)
 
 classMethods(panelize.Panel)
@@ -123,7 +122,7 @@ print(f"""
 This class represents a pice of substrate (with no components). Basically it is
 just a relatively thin wrapper around shapely polygons. On top of that, it keeps
 a partition line for the substrate. Read more about partition lines in
-[understanding tabs](understandingTabs.md).
+[understanding tabs](tabs.md).
 
 """)
 

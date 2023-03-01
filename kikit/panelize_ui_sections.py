@@ -55,6 +55,13 @@ class SNum(SectionBase):
     def validate(self, x):
         return int(x)
 
+class SNaturalNum(SNum):
+    def validate(self, x):
+        val = int(x)
+        if val < 0:
+            raise PresetError(f"A non-negative number expected, got '{x}'")
+        return val
+
 class SStr(SectionBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -255,19 +262,25 @@ LAYOUT_SECTION = {
     "vbackbone": SLength(
         typeIn(["grid", "plugin"]),
         "The width of vertical backbone (0 means no backbone)"),
-    "hboneskip": SNum(
+    "hboneskip": SNaturalNum(
         typeIn(["grid", "plugin"]),
         "Skip every given number of horizontal backbones"),
-    "vboneskip": SNum(
+    "vboneskip": SNaturalNum(
         typeIn(["grid", "plugin"]),
         "Skip every given number of vertical backbones"),
+    "hbonefirst": SNaturalNum(
+        typeIn(["grid", "plugin"]),
+        "Specify first horizontal backbone to render"),
+    "vbonefirst": SNaturalNum(
+        typeIn(["grid", "plugin"]),
+        "Specify first vertical backbone to render"),
     "rotation": SAngle(
         always(),
         "Rotate the boards before placing them in the panel"),
-    "rows": SNum(
+    "rows": SNaturalNum(
         typeIn(["grid", "plugin"]),
         "Specify the number of rows in the grid pattern"),
-    "cols": SNum(
+    "cols": SNaturalNum(
         typeIn(["grid", "plugin"]),
         "Specify the number of columns in the grid pattern"),
     "vbonecut": SBool(
@@ -362,6 +375,10 @@ TABS_SECTION = {
     "cutout": SLength(
         typeIn(["fixed", "plugin"]),
         "Depth of cutouts into the frame"),
+    "patchcorners": SBool(
+        typeIn(["fixed", "plugin"]),
+        "Choose if to apply corner patches for the full tabs"
+    ),
     "tabfootprints": SFootprintList(
         typeIn(["annotation", "plugin"]),
         "Specify custom footprints that will be used for tab annotations."),
@@ -461,9 +478,15 @@ FRAMING_SECTION = {
         ["none", "both", "v", "h"],
         typeIn(["frame", "plugin"]),
         "Add cuts to the corners of the frame"),
-    "chamfer": SLength(
+    "chamferwidth": SLength(
         typeIn(["tightframe", "frame", "railslr", "railstb", "plugin"]),
         "Add chamfer to the 4 corners of the panel. Specify chamfer width."),
+    "chamferheight": SLength(
+        typeIn(["tightframe", "frame", "railslr", "railstb", "plugin"]),
+        "Add chamfer to the 4 corners of the panel. Specify chamfer height."),
+    "chamfer": SLength(
+        never(),
+        "Add chamfer to the 4 corners of the panel. Specifies a 45° chamfer."),
     "fillet": SLength(
         typeIn(["tightframe", "frame", "railslr", "railstb", "plugin"]),
         "Add fillet to the 4 corners of the panel. Specify fillet radius."),
@@ -481,6 +504,8 @@ def ppFraming(section):
     # The space parameter overrides hspace and vspace
     if "space" in section:
         section["hspace"] = section["vspace"] = section["space"]
+    if "chamfer" in section:
+        section["chamferwidth"] = section["chamferheight"] = section["chamfer"]
 
 TOOLING_SECTION = {
     "type": SChoice(
@@ -528,6 +553,9 @@ FIDUCIALS_SECTION = {
     "opening": SLength(
         typeIn(["3fid", "4fid", "plugin"]),
         "Diameter of the opening"),
+    "paste": SBool(
+        typeIn(["3fid", "4fid", "plugin"]),
+        "Include fiducials on the paste layer"),
     "code": SPlugin(
         plugin.FiducialsPlugin,
         typeIn(["plugin"]),
@@ -628,6 +656,9 @@ POST_SECTION = {
     "millradius": SLength(
         always(),
         "Simulate milling operation"),
+    "millradiusouter": SLength(
+        always(),
+        "Simulate milling operation only on the outer perimeter of boards"),
     "reconstructarcs": SBool(
         always(),
         "Try to reconstruct arcs"),
@@ -643,7 +674,11 @@ POST_SECTION = {
     "origin": SChoice(
         ANCHORS + [""],
         always(),
-        "Place auxiliary origin")
+        "Place auxiliary origin"),
+    "dimensions": SBool(
+        always(),
+        "Add dimensions markings to the finished panel"
+    )
 }
 
 def ppPost(section):

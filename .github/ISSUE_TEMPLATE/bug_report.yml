@@ -5,9 +5,9 @@ body:
   attributes:
     label: Prerequisites
     options:
-    - label: I have read [FAQ](https://github.com/yaqwsx/KiKit/blob/master/doc/faq.md)
+    - label: I have read [FAQ](https://yaqwsx.github.io/KiKit/latest/faq/)
       required: true
-    - label: I use the KiKit at least 1.1.0 (older version are not supported)
+    - label: I use KiKit at least version 1.3.0 (older version are not supported)
       required: true
 - type: input
   attributes:

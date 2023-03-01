@@ -25,6 +25,10 @@ venv
 # Ignore png tab drawings
 doc/resources/tabdrawing*.png
 
+# MkDocs
+site
+
 .pc
 *.epr
 .pybuild
+

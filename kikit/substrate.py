@@ -7,14 +7,14 @@ import shapely
 import json
 import numpy as np
 from kikit.intervals import Interval, BoxNeighbors, BoxPartitionLines
-from pcbnewTransition import pcbnew, isV6
+from pcbnewTransition import pcbnew
 from enum import IntEnum
 from itertools import product
 
 from typing import List, Tuple, Union
 
 from kikit.common import *
-
+from kikit.units import deg
 from kikit.defs import STROKE_T, Layer
 
 TABFAIL_VISUAL = False
@@ -35,40 +35,27 @@ class TabFilletError(RuntimeError):
 
 def roundPoint(point, precision=-4):
     return (round(point[0], precision), round(point[1], precision))
-    return pcbnew.wxPoint(round(point[0], precision), round(point[1], precision))
 
 def getStartPoint(geom):
-    if isV6():
-        if geom.GetShape() == STROKE_T.S_CIRCLE:
-            # Circle start is circle center /o\
-            point = geom.GetStart() + pcbnew.wxPoint(geom.GetRadius(), 0)
-        elif geom.GetShape() == STROKE_T.S_RECT:
-            point = geom.GetStart()
-        else:
-            point = geom.GetStart()
-        return point
-
-    if geom.GetShape() in [STROKE_T.S_ARC, STROKE_T.S_CIRCLE]:
-        return geom.GetArcStart()
-    return geom.GetStart()
+    if geom.GetShape() == STROKE_T.S_CIRCLE:
+        # Circle start is circle center /o\
+        point = geom.GetStart() + pcbnew.VECTOR2I(geom.GetRadius(), 0)
+    elif geom.GetShape() == STROKE_T.S_RECT:
+        point = geom.GetStart()
+    else:
+        point = geom.GetStart()
+    return point
 
 def getEndPoint(geom):
-    if isV6():
-        if geom.GetShape() == STROKE_T.S_CIRCLE:
-            # Circle start is circle center /o\
-            point = geom.GetStart() + pcbnew.wxPoint(geom.GetRadius(), 0)
-        elif geom.GetShape() == STROKE_T.S_RECT:
-            # Rectangle is closed, so it starts at the same point as it ends
-            point = geom.GetStart()
-        else:
-            point = geom.GetEnd()
-        return point
-
-    if geom.GetShape() == STROKE_T.S_ARC:
-        return geom.GetArcEnd()
     if geom.GetShape() == STROKE_T.S_CIRCLE:
-        return geom.GetArcStart()
-    return geom.GetEnd()
+        # Circle start is circle center /o\
+        point = geom.GetStart() + pcbnew.VECTOR2I(geom.GetRadius(), 0)
+    elif geom.GetShape() == STROKE_T.S_RECT:
+        # Rectangle is closed, so it starts at the same point as it ends
+        point = geom.GetStart()
+    else:
+        point = geom.GetEnd()
+    return point
 
 class CoincidenceList(list):
     def getNeighbor(self, myIdx):
@@ -159,16 +146,18 @@ def approximateArc(arc, endWith):
     Take DRAWINGITEM and approximate it using lines
     """
     SEGMENTS_PER_FULL= 4 * 32 # To Be consistent with default shapely settings
-    startAngle = arc.GetArcAngleStart() / 10
+
+    startAngle = EDA_ANGLE(0, pcbnew.DEGREES_T)
+    endAngle = EDA_ANGLE(0, pcbnew.DEGREES_T)
+    arc.CalcArcAngles(startAngle, endAngle)
     if arc.GetShape() == STROKE_T.S_CIRCLE:
-        endAngle = startAngle + 360
+        endAngle = startAngle + 360 * deg
         segments = SEGMENTS_PER_FULL
     else:
-        endAngle = startAngle + arc.GetArcAngle() / 10
-        segments = abs(int((endAngle - startAngle) * SEGMENTS_PER_FULL // 360))
+        segments = abs(int((endAngle.AsDegrees() - startAngle.AsDegrees()) * SEGMENTS_PER_FULL // 360))
     # Ensure a minimal number of segments for small angle section of arcs
     segments = max(segments, 12)
-    theta = np.radians(np.linspace(startAngle, endAngle, segments))
+    theta = np.linspace(startAngle.AsRadians(), endAngle.AsRadians(), segments)
     x = arc.GetCenter()[0] + arc.GetRadius() * np.cos(theta)
     y = arc.GetCenter()[1] + arc.GetRadius() * np.sin(theta)
     outline = list(np.column_stack([x, y]))
@@ -355,48 +344,19 @@ def substratesFrom(polygons):
         substrates.append(Polygon(polygon.exterior, holes))
     return substrates
 
-def commonCircleKiCAD(a, b, c):
-    """
-    Get a common circle using KiCAD APIs (a little abusive)
-    """
-    arc = pcbnew.PCB_SHAPE()
-    arc.SetShape(STROKE_T.S_ARC)
-    arc.SetArcGeometry(wxPoint(*a), wxPoint(*b), wxPoint(*c))
-    center = [int(x) for x in arc.GetCenter()]
-    mid = [(a[i] + b[i]) // 2 for i in range(2)]
-    if center == mid:
-        return None
-    return roundPoint(center, -8)
-
-def commonCirclePython(a, b, c):
-    """
-    Get a common circle using pure Python implementation
-    """
-    o_l = [(a[i] + b[i]) / 2 for i in range(2)]
-    o_r = [(b[i] + c[i]) / 2 for i in range(2)]
-    d_l = [(b[i] - a[i]) for i in range(2)]
-    d_r = [(c[i] - b[i]) for i in range(2)]
-    n_l = (d_l[1], -d_l[0])
-    n_r = (d_r[1], -d_r[0])
-
-    t_denom = n_l[0] * n_r[1] - n_l[1] * n_r[0]
-    if t_denom == 0:
-        return None # The normal vectors are parallel
-    t = (n_r[0] * (o_l[1] - o_r[1]) + n_r[1] * (o_r[1] - o_l[1])) / t_denom
-    intersection = [o_l[i] + n_l[i] * t for i in range(2)]
-    return roundPoint(intersection)
-
-
 def commonCircle(a, b, c):
     """
     Given three 2D points return (x, y, r) of the circle they lie on or None if
     they lie in a line
     """
-    # We use the KiCAD's API implementation as it seems faster, but v5 doesn't
-    # offer it
-    if isV6():
-        return commonCircleKiCAD(a, b, c)
-    return commonCirclePython(a, b, c)
+    arc = pcbnew.PCB_SHAPE()
+    arc.SetShape(STROKE_T.S_ARC)
+    arc.SetArcGeometry(toKiCADPoint(a), toKiCADPoint(b), toKiCADPoint(c))
+    center = [int(x) for x in arc.GetCenter()]
+    mid = [(a[i] + b[i]) // 2 for i in range(2)]
+    if center == mid:
+        return None
+    return roundPoint(center, -8)
 
 
 def liesOnSegment(start, end, point, tolerance=fromMm(0.01)):
@@ -523,6 +483,12 @@ class Substrate:
         """
         return self.substrates.bounds
 
+    def interiors(self):
+        """
+        Return shapely interiors of the substrate
+        """
+        return self.substrates.interiors
+
     def midpoint(self) -> Tuple[int, int]:
         """
         Return a mid point of the bounding box
@@ -601,8 +567,8 @@ class Substrate:
         segment = pcbnew.PCB_SHAPE()
         segment.SetShape(STROKE_T.S_SEGMENT)
         segment.SetLayer(Layer.Edge_Cuts)
-        segment.SetStart(wxPoint(*a))
-        segment.SetEnd(wxPoint(*b))
+        segment.SetStart(toKiCADPoint(a))
+        segment.SetEnd(toKiCADPoint(b))
         return segment
 
     def _constructArc(self, a, b, c):
@@ -612,15 +578,17 @@ class Substrate:
         arc = pcbnew.PCB_SHAPE()
         arc.SetShape(STROKE_T.S_ARC)
         arc.SetLayer(Layer.Edge_Cuts)
-        arc.SetArcGeometry(wxPoint(*a), wxPoint(*b), wxPoint(*c))
+        arc.SetArcGeometry(toKiCADPoint(a), toKiCADPoint(b), toKiCADPoint(c))
         return arc
 
     def boundingBox(self):
         """
-        Return bounding box as wxRect
+        Return bounding box as BOX2I
         """
         minx, miny, maxx, maxy = self.substrates.bounds
-        return pcbnew.wxRect(int(minx), int(miny), int(maxx - minx), int(maxy - miny))
+        return pcbnew.BOX2I(
+            pcbnew.VECTOR2I(int(minx), int(miny)),
+            pcbnew.VECTOR2I(int(maxx - minx), int(maxy - miny)))
 
     def exterior(self):
         """
@@ -667,7 +635,7 @@ class Substrate:
 
         origin = np.array(origin)
         try:
-            direction = np.around(normalize(direction))
+            direction = np.around(normalize(direction), 4)
             sideOriginA = origin + makePerpendicular(direction) * width / 2
             sideOriginB = origin - makePerpendicular(direction) * width / 2
             boundary = self.substrates.exterior
@@ -745,7 +713,11 @@ class Substrate:
         candidates = [x for x in geoms if x.intersects(tab)]
         if len(candidates) != 1:
             raise TabFilletError(f"Unexpected number of fillet candidates: {len(candidates)}")
-        newFace = candidates[0].intersection(self.substrates)
+        # Shapely is numerically unstable for this, bloat the polygon slighlty
+        # to ensure there is an intersection
+        candidate = candidates[0].buffer(SHP_EPSILON)
+
+        newFace = candidate.intersection(self.substrates.exterior)
         if isinstance(newFace, GeometryCollection):
             newFace = MultiLineString([x for x in newFace.geoms if not isinstance(x, Polygon)])
         if isinstance(newFace, MultiLineString):
@@ -754,7 +726,7 @@ class Substrate:
             raise TabFilletError(f"Unexpected result of filleted tab face: {type(newFace)}, {json.dumps(shapely.geometry.mapping(newFace), indent=4)}")
         if Point(tabFace.coords[0]).distance(Point(newFace.coords[0])) > Point(tabFace.coords[0]).distance(Point(newFace.coords[-1])):
             newFace = LineString(reversed(newFace.coords))
-        return candidates[0], newFace
+        return candidate, newFace
 
     def _strPosition(self, point):
         msg = f"[{toMm(point[0])}, {toMm(point[1])}]"

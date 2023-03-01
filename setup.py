@@ -5,12 +5,19 @@ import versioneer
 import os
 import sys
 
+# Some packages on Linux for v7 change the location of the pcbnew module, let's
+# add the new location to path:
+import os
+if os.name != "nt":
+    sys.path.append("/usr/lib/kicad/lib/python3/dist-packages")
+    try:
+        from ctypes import cdll
+        cdll.LoadLibrary("/usr/lib/kicad/lib/x86_64-linux-gnu/libkicad_3dsg.so.2.0.0")
+    except Exception:
+        pass # Ignore any errors as the library just might not exists here
+
 try:
     import pcbnew
-
-    v = [int(x) for x in pcbnew.GetMajorMinorVersion().split(".")]
-    if v[0] == 6 and v[1] == 6.99:
-        print("KiCAD nightly is not supported at the moment. You can try use it, but most functionality will be broken.")
 except ImportError:
     if os.name == "nt":
         message = "No Pcbnew Python module found.\n" + \
@@ -51,7 +58,7 @@ setuptools.setup(
     ],
     install_requires=[
         "numpy",
-        "pcbnewTransition==0.2.0",
+        "pcbnewTransition >= 0.3.4, <=0.4",
         "shapely>=1.7",
         "click>=7.1",
         "markdown2>=2.3",

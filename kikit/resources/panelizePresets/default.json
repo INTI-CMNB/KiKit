@@ -13,6 +13,8 @@
         "vbackbone": "0mm",
         "hboneskip": 0,
         "vboneskip": 0,
+        "hbonefirst": 0,
+        "vbonefirst": 0,
         "vbonecut": true,
         "hbonecut": true,
         "baketext": true,
@@ -41,7 +43,8 @@
         "fillet": "0mm",
         "code": "none",
         "arg": "",
-        "cutout": "1mm"
+        "cutout": "1mm",
+        "patchcorners": true
     },
     "cuts": {
         "type": "none",
@@ -69,7 +72,8 @@
         "mintotalwidth": "0mm",
         "maxtotalheight": "10m",
         "maxtotalwidth": "10m",
-        "chamfer": "0mm",
+        "chamferwidth": "0mm",
+        "chamferheight": "0mm",
         "fillet": "0mm",
         "code": "none",
         "arg": ""
@@ -79,6 +83,7 @@
         "layout": "3hole",
         "hoffset": "0mm",
         "voffset": "0mm",
+        "size": "2mm",
         "paste": false,
         "code": "none",
         "arg": ""
@@ -89,6 +94,7 @@
         "voffset": "0mm",
         "coppersize": "1mm",
         "opening": "1mm",
+        "paste": false,
         "code": "none",
         "arg": ""
     },
@@ -165,10 +171,12 @@
         "copperfill": false,
         "reconstructarcs": false,
         "millradius": "0mm",
+        "millradiusouter": "0mm",
         "script": "",
         "scriptarg": "",
         "origin": "tl",
-        "refillzones": false
+        "refillzones": false,
+        "dimensions": false
     },
     "page": {
         "type": "inherit",

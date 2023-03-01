@@ -4,10 +4,11 @@ from pcbnewTransition import pcbnew, isV6
 from kikit import sexpr
 from kikit.common import normalize
 
+from pathlib import Path
+
 from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Union
 
-from pcbnew import (GetBoard, LoadBoard,
-                    FromMM, ToMM, wxPoint, wxRect, wxRectMM, wxPointMM)
+from pcbnewTransition.pcbnew import (LoadBoard, ToMM, VECTOR2I, BOX2I, EDA_ANGLE)
 from enum import Enum
 from shapely.geometry import (Polygon, MultiPolygon, Point, LineString, box,
                               GeometryCollection, MultiLineString)
@@ -29,6 +30,7 @@ from kikit.common import *
 from kikit.sexpr import parseSexprF, SExpr, Atom, findNode
 from kikit.annotations import AnnotationReader, TabAnnotation
 from kikit.drc import DrcExclusion, readBoardDrcExclusions, serializeExclusion
+from kikit.units import mm, deg
 
 class PanelError(RuntimeError):
     pass
@@ -40,7 +42,7 @@ def identity(x):
     return x
 
 class GridPlacerBase:
-    def position(self, i: int, j: int, boardSize: Optional[wxRect]) -> wxPoint:
+    def position(self, i: int, j: int, boardSize: Optional[BOX2I]) -> VECTOR2I:
         """
         Given row and col coords of a board, return physical physical position
         of the board. All function calls (except for 0, 0) also receive board
@@ -63,56 +65,60 @@ class BasicGridPosition(GridPlacerBase):
     """
     def __init__(self, horSpace: int, verSpace: int,
                  hbonewidth: int=0, vbonewidth: int=0,
-                 hboneskip: int=0, vboneskip: int=0) -> None:
+                 hboneskip: int=0, vboneskip: int=0,
+                 hbonefirst: int=0, vbonefirst: int=0) -> None:
         self.horSpace = horSpace
         self.verSpace = verSpace
         self.hbonewidth = hbonewidth
         self.vbonewidth = vbonewidth
         self.hboneskip = hboneskip
         self.vboneskip = vboneskip
+        self.hbonefirst = hbonefirst
+        self.vbonefirst = vbonefirst
 
-    def position(self, i: int, j: int, boardSize: Optional[wxRect]) -> wxPoint:
+    def position(self, i: int, j: int, boardSize: Optional[BOX2I]) -> VECTOR2I:
         if boardSize is None:
             assert i == 0 and j == 0
-            return wxPoint(0, 0)
+            boardSize = BOX2I(VECTOR2I(0, 0), VECTOR2I(0, 0))
         hbonecount = 0 if self.hbonewidth == 0 \
-                       else i // (self.hboneskip + 1)
+                       else max((i + self.hbonefirst)  // (self.hboneskip + 1), 0)
         vbonecount = 0 if self.vbonewidth == 0 \
-                       else j // (self.vboneskip + 1)
-        return wxPoint(j * (boardSize.GetWidth() + self.horSpace) + \
-                            vbonecount * (self.vbonewidth + self.horSpace),
-                       i * (boardSize.GetHeight() + self.verSpace) + \
-                            hbonecount * (self.hbonewidth + self.verSpace))
+                       else max((j + self.vbonefirst) // (self.vboneskip + 1), 0)
+        xPos = j * (boardSize.GetWidth() + self.horSpace) + \
+               vbonecount * (self.vbonewidth + self.horSpace)
+        yPos = i * (boardSize.GetHeight() + self.verSpace) + \
+               hbonecount * (self.hbonewidth + self.verSpace)
+        return toKiCADPoint((xPos, yPos))
 
-    def rotation(self, i: int, j: int) -> int:
-        return 0
+    def rotation(self, i: int, j: int) -> KiAngle:
+        return EDA_ANGLE(0, pcbnew.DEGREES_T)
 
 class OddEvenRowsPosition(BasicGridPosition):
     """
     Rotate boards by 180° for every row
     """
-    def rotation(self, i: int, j: int) -> int:
+    def rotation(self, i: int, j: int) -> KiAngle:
         if i % 2 == 0:
-            return 0
-        return 1800
+            return EDA_ANGLE(0, pcbnew.DEGREES_T)
+        return EDA_ANGLE(180, pcbnew.DEGREES_T)
 
 class OddEvenColumnPosition(BasicGridPosition):
     """
     Rotate boards by 180° for every column
     """
-    def rotation(self, i: int, j: int) -> int:
+    def rotation(self, i: int, j: int) -> KiAngle:
         if j % 2 == 0:
-            return 0
-        return 1800
+            return EDA_ANGLE(0, pcbnew.DEGREES_T)
+        return EDA_ANGLE(180, pcbnew.DEGREES_T)
 
 class OddEvenRowsColumnsPosition(BasicGridPosition):
     """
     Rotate boards by 180 for every row and column
     """
-    def rotation(self, i: int, j: int) -> int:
+    def rotation(self, i: int, j: int) -> KiAngle:
         if (i % 2) == (j % 2):
             return 0
-        return 1800
+        return EDA_ANGLE(180, pcbnew.DEGREES_T)
 
 
 class Origin(Enum):
@@ -149,18 +155,18 @@ class NetClass():
         return data
 
 def getOriginCoord(origin, bBox):
-    """Returns real coordinates (wxPoint) of the origin for given bounding box"""
+    """Returns real coordinates (VECTOR2I) of the origin for given bounding box"""
     if origin == Origin.Center:
-        return wxPoint(bBox.GetX() + bBox.GetWidth() // 2,
-                       bBox.GetY() + bBox.GetHeight() // 2)
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth() // 2,
+                        bBox.GetY() + bBox.GetHeight() // 2)
     if origin == Origin.TopLeft:
-        return wxPoint(bBox.GetX(), bBox.GetY())
+        return VECTOR2I(bBox.GetX(), bBox.GetY())
     if origin == Origin.TopRight:
-        return wxPoint(bBox.GetX() + bBox.GetWidth(), bBox.GetY())
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth(), bBox.GetY())
     if origin == Origin.BottomLeft:
-        return wxPoint(bBox.GetX(), bBox.GetY() + bBox.GetHeight())
+        return VECTOR2I(bBox.GetX(), bBox.GetY() + bBox.GetHeight())
     if origin == Origin.BottomRight:
-        return wxPoint(bBox.GetX() + bBox.GetWidth(), bBox.GetY() + bBox.GetHeight())
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth(), bBox.GetY() + bBox.GetHeight())
 
 def appendItem(board: pcbnew.BOARD, item: pcbnew.BOARD_ITEM,
                yieldMapping: Optional[Callable[[str, str], None]]=None) -> None:
@@ -177,7 +183,7 @@ def appendItem(board: pcbnew.BOARD, item: pcbnew.BOARD_ITEM,
     except TypeError: # Footprint has overridden the method, cannot be called directly
         newItem = pcbnew.Cast_to_BOARD_ITEM(item).Duplicate().Cast()
     board.Add(newItem)
-    if not isV6() or not yieldMapping:
+    if not yieldMapping:
         return
     if isinstance(item, pcbnew.FOOTPRINT):
         newFootprint = pcbnew.Cast_to_FOOTPRINT(newItem)
@@ -197,13 +203,13 @@ def remapNets(collection, mapping):
     for item in collection:
         item.SetNetCode(mapping[item.GetNetname()].GetNetCode())
 
-ToPolygonGeometry = Union[Polygon, wxRect, Substrate]
+ToPolygonGeometry = Union[Polygon, BOX2I, Substrate]
 def toPolygon(entity: Union[List[ToPolygonGeometry], ToPolygonGeometry]) -> Polygon:
     if isinstance(entity, list):
         return list([toPolygon(e) for e in entity])
     if isinstance(entity, Polygon) or isinstance(entity, MultiPolygon):
         return entity
-    if isinstance(entity, wxRect):
+    if isinstance(entity, BOX2I):
         return Polygon([
             (entity.GetX(), entity.GetY()),
             (entity.GetX() + entity.GetWidth(), entity.GetY()),
@@ -218,17 +224,18 @@ def rectString(rect):
                 ToMM(rect.GetX()), ToMM(rect.GetY()),
                 ToMM(rect.GetWidth()), ToMM(rect.GetHeight()))
 
-def expandRect(rect: wxRect, offsetX: KiLength, offsetY: Optional[KiLength]=None):
+def expandRect(rect: BOX2I, offsetX: KiLength, offsetY: Optional[KiLength]=None):
     """
-    Given a wxRect returns a new rectangle, which is larger in all directions
+    Given a BOX2I returns a new rectangle, which is larger in all directions
     by offset. If only offsetX is passed, it used for both X and Y offset
     """
     if offsetY is None:
         offsetY = offsetX
     offsetX = int(offsetX)
     offsetY = int(offsetY)
-    return wxRect(rect.GetX() - offsetX, rect.GetY() - offsetY,
-        rect.GetWidth() + 2 * offsetX, rect.GetHeight() + 2 * offsetY)
+    return BOX2I(
+            VECTOR2I(rect.GetX() - offsetX, rect.GetY() - offsetY),
+            VECTOR2I(rect.GetWidth() + 2 * offsetX, rect.GetHeight() + 2 * offsetY))
 
 def rectToRing(rect):
     return [
@@ -243,18 +250,18 @@ def roundPoint(point, precision=-4):
         return Point(round(point.x, precision), round(point.y, precision))
     return Point(round(point[0], precision), round(point[1], precision))
 
-def doTransformation(point: KiKitPoint, rotation: KiAngle, origin: KiKitPoint, translation: KiKitPoint) -> wxPoint:
+def doTransformation(point: KiPoint, rotation: KiAngle, origin: KiPoint, translation: KiPoint) -> VECTOR2I:
     """
     Abuses KiCAD to perform a tranformation of a point
     """
     segment = pcbnew.PCB_SHAPE()
     segment.SetShape(STROKE_T.S_SEGMENT)
-    segment.SetStart(wxPoint(int(point[0]), int(point[1])))
-    segment.SetEnd(wxPoint(0, 0))
-    segment.Rotate(wxPoint(int(origin[0]), int(origin[1])), -rotation)
-    segment.Move(wxPoint(translation[0], translation[1]))
-    # We build a fresh wxPoint - otherwise there is a shared reference
-    return wxPoint(segment.GetStartX(), segment.GetStartY())
+    segment.SetStart(toKiCADPoint(point))
+    segment.SetEnd(VECTOR2I(0, 0))
+    segment.Rotate(toKiCADPoint(origin), -1 * rotation)
+    segment.Move(toKiCADPoint(translation))
+    # We build a fresh VECTOR2I - otherwise there is a shared reference
+    return VECTOR2I(segment.GetStartX(), segment.GetStartY())
 
 def undoTransformation(point, rotation, origin, translation):
     """
@@ -265,12 +272,12 @@ def undoTransformation(point, rotation, origin, translation):
     # Abuse PcbNew to do so
     segment = pcbnew.PCB_SHAPE()
     segment.SetShape(STROKE_T.S_SEGMENT)
-    segment.SetStart(wxPoint(int(point[0]), int(point[1])))
-    segment.SetEnd(wxPoint(0, 0))
-    segment.Move(wxPoint(-translation[0], -translation[1]))
-    segment.Rotate(origin, -rotation)
-    # We build a fresh wxPoint - otherwise there is a shared reference
-    return wxPoint(segment.GetStartX(), segment.GetStartY())
+    segment.SetStart(VECTOR2I(int(point[0]), int(point[1])))
+    segment.SetEnd(VECTOR2I(0, 0))
+    segment.Move(VECTOR2I(-translation[0], -translation[1]))
+    segment.Rotate(origin, -1 * rotation)
+    # We build a fresh VECTOR2I - otherwise there is a shared reference
+    return VECTOR2I(segment.GetStartX(), segment.GetStartY())
 
 def removeCutsFromFootprint(footprint):
     """
@@ -330,7 +337,7 @@ def isBoardEdge(edge):
 
 def increaseZonePriorities(board, amount=1):
     for zone in board.Zones():
-        zone.SetPriority(zone.GetPriority() + amount)
+        zone.SetAssignedPriority(zone.GetAssignedPriority() + amount)
 
 def tabSpacing(width, count):
     """
@@ -408,7 +415,7 @@ def maxTabCount(edgeLen, width, minDistance):
     c = 1 + (edgeLen - minDistance) // (minDistance + width)
     return max(0, int(c))
 
-def skipBackbones(backbones: List[LineString], skip: int,
+def skipBackbones(backbones: List[LineString], skip: int, first: int,
                   key: Callable[[LineString], int]) -> List[LineString]:
     """
     Given a list of backbones, get only every (skip + 1) other one. Treats
@@ -416,7 +423,7 @@ def skipBackbones(backbones: List[LineString], skip: int,
     """
     candidates = list(set(map(key, backbones)))
     candidates.sort()
-    active = set(itertools.islice(candidates, skip, None, skip + 1))
+    active = set(itertools.islice(candidates, first - 1, None, skip + 1))
     return [x for x in backbones if key(x) in active]
 
 def bakeTextVars(board: pcbnew.BOARD) -> None:
@@ -470,6 +477,12 @@ class Panel:
         # dictionary of variables for each appended board.
         self.projectVars: List[Dict[str, str]] = []
 
+        # We want to prolong dimensions of the panel by the size of fillet or
+        # chamfer, thus, we have to remember them
+        self.filletSize: Optional[KiLength] = None
+        self.chamferWidth: Optional[KiLength] = None
+        self.chamferHeight: Optional[KiLength] = None
+
     def save(self, reconstructArcs: bool=False, refillAllZones: bool=False):
         """
         Saves the panel to a file and makes the requested changes to the prl and
@@ -501,9 +514,9 @@ class Panel:
             originalZoneNames[newName] = zone.GetZoneName()
             zone.SetZoneName(newName)
         self.board.Save(self.filename)
-        if isV6():
-            self.makeLayersVisible() # as they are not in KiCAD 6
-            self.transferProjectSettings()
+
+        self.makeLayersVisible() # as they are not in KiCAD 6
+        self.transferProjectSettings()
 
         # Remove cuts
         for cut, _ in vcuts:
@@ -578,14 +591,13 @@ class Panel:
         Modify corresponding *.prl files so all the layers are visible by
         default
         """
-        assert isV6()
         try:
             with open(self.getPrlFilepath()) as f:
                 # We use ordered dict, so we preserve the ordering of the keys and
                 # thus, formatting
                 prl = json.load(f, object_pairs_hook=OrderedDict)
             prl["board"]["visible_layers"] = "fffffff_ffffffff"
-            with open(self.getPrlFilepath(), "w") as f:
+            with open(self.getPrlFilepath(), "w", encoding="utf-8") as f:
                 json.dump(prl, f, indent=2)
         except IOError:
             # The PRL file is not always created, ignore it
@@ -600,8 +612,6 @@ class Panel:
         Also, transfers the list of net classes from the internal representation
         into the project file.
         """
-        assert isV6()
-
         if len(self.sourcePaths) > 1:
             raise RuntimeError("Merging of DRC rules of multiple boards is currently unsupported")
         if len(self.sourcePaths) == 0:
@@ -625,7 +635,7 @@ class Panel:
 
             currentPro["net_settings"]["classes"] = sourcePro["net_settings"]["classes"]
             currentPro["net_settings"]["classes"] += [x.serialize() for x in self.newNetClasses.values()]
-            with open(self.getProFilepath(), "w") as f:
+            with open(self.getProFilepath(), "w", encoding="utf-8") as f:
                 json.dump(currentPro, f, indent=2)
         except (KeyError, FileNotFoundError):
             # This means the source board has no DRC setting. Probably a board
@@ -668,7 +678,7 @@ class Panel:
         """
         if self.pageSize is None:
             return
-        with open(self.filename, "r") as f:
+        with open(self.filename, "r", encoding="utf-8") as f:
             tree = parseSexprF(f, limit=10) # Introduce limit to speed up parsing
         # Find paper property
         paperExpr = None
@@ -697,7 +707,7 @@ class Panel:
                 Atom(str(pageSize[1]), " "),
             ]
 
-        with open(self.filename, "w") as f:
+        with open(self.filename, "w", encoding="utf-8") as f:
             f.write(str(tree))
 
 
@@ -714,11 +724,8 @@ class Panel:
         """
         Set design settings
         """
-        if isV6():
-            d = self.board.GetDesignSettings()
-            d.CloneFrom(designSettings)
-        else:
-            self.board.SetDesignSettings(designSettings)
+        d = self.board.GetDesignSettings()
+        d.CloneFrom(designSettings)
 
     def inheritProperties(self, board):
         """
@@ -740,7 +747,7 @@ class Panel:
         # What follows is a hack as KiCAD has no API for page access. Therefore,
         # we have to read out the page size from the source board and save it so
         # we can recover it.
-        with open(board.GetFileName(), "r") as f:
+        with open(board.GetFileName(), "r", encoding="utf-8") as f:
             tree = parseSexprF(f, limit=10) # Introduce limit to speed up parsing
         self._inheritedPageDimensions = getPageDimensionsFromAst(tree)
 
@@ -790,16 +797,21 @@ class Panel:
         """
         self.board.SetTitleBlock(titleBlock)
 
-    def appendBoard(self, filename, destination, sourceArea=None,
-                    origin=Origin.Center, rotationAngle=0, shrink=False,
-                    tolerance=0, bufferOutline=fromMm(0.001), netRenamer=None,
-                    refRenamer=None, inheritDrc=True, interpretAnnotations=True,
-                    bakeText=False):
+    def appendBoard(self, filename: Union[str, Path], destination: VECTOR2I,
+                    sourceArea: Optional[BOX2I] = None,
+                    origin: Origin = Origin.Center,
+                    rotationAngle: KiAngle = fromDegrees(0),
+                    shrink: bool = False, tolerance: KiLength = 0,
+                    bufferOutline: KiLength = fromMm(0.001),
+                    netRenamer: Optional[Callable[[int, str], str]] = None,
+                    refRenamer: Optional[Callable[[int, str], str]] = None,
+                    inheritDrc: bool = True, interpretAnnotations: bool=True,
+                    bakeText: bool = False):
         """
         Appends a board to the panel.
 
-        The sourceArea (wxRect) of the board specified by filename is extracted
-        and placed at destination (wxPoint). The source area (wxRect) can be
+        The sourceArea (BOX2I) of the board specified by filename is extracted
+        and placed at destination (VECTOR2I). The source area (BOX2I) can be
         auto detected if it is not provided. Only board items which fit entirely
         into the source area are selected. You can also specify rotation. Both
         translation and rotation origin are specified by origin. Origin
@@ -819,10 +831,17 @@ class Panel:
 
         Similarly, you can substitute variables in the text via bakeText.
 
-        Returns bounding box (wxRect) of the extracted area placed at the
+        Returns bounding box (BOX2I) of the extracted area placed at the
         destination and the extracted substrate of the board.
         """
-        board = LoadBoard(filename)
+        # Since we want to follow KiCAD's new API, we require angles to be given
+        # as EDA_ANGLE. However, there might be old scripts that will pass a
+        # number.
+        if not isinstance(rotationAngle, EDA_ANGLE):
+            raise RuntimeError("Board rotation has to be passed as EDA_ANGLE, not a number")
+
+
+        board = LoadBoard(str(filename))
         if inheritDrc:
             self.sourcePaths.add(filename)
         if bakeText:
@@ -845,7 +864,7 @@ class Panel:
             sourceArea = findBoardBoundingBox(board, sourceArea)
         enlargedSourceArea = expandRect(sourceArea, tolerance)
         originPoint = getOriginCoord(origin, sourceArea)
-        translation = wxPoint(destination[0] - originPoint[0],
+        translation = VECTOR2I(destination[0] - originPoint[0],
                               destination[1] - originPoint[1])
 
         if netRenamer is None:
@@ -853,8 +872,7 @@ class Panel:
         bId = len(self.substrates)
         netRenamerFn = lambda x: netRenamer(bId, x)
 
-        if isV6():
-            self._inheritNetClasses(board, netRenamerFn)
+        self._inheritNetClasses(board, netRenamerFn)
 
         renameNets(board, netRenamerFn)
         if refRenamer is not None:
@@ -921,27 +939,26 @@ class Panel:
             self.substrates[-1].annotations = annotations
         except substrate.PositionError as e:
             point = undoTransformation(e.point, rotationAngle, originPoint, translation)
-            raise substrate.PositionError(filename + ": " + e.origMessage, point)
+            raise substrate.PositionError(f"{filename}: {e.origMessage}", point)
         for drawing in otherDrawings:
             appendItem(self.board, drawing, yieldMapping)
 
-        if isV6():
-            try:
-                exclusions = readBoardDrcExclusions(board)
-                for drcE in exclusions:
-                    try:
-                        newObjects = [self.board.GetItem(pcbnew.KIID(itemMapping[x.m_Uuid.AsString()])) for x in drcE.objects]
-                        assert all(x is not None for x in newObjects)
-                        newPosition = doTransformation(drcE.position, rotationAngle, originPoint, translation)
-                        self.drcExclusions.append(DrcExclusion(
-                            drcE.type,
-                            newPosition,
-                            newObjects
-                        ))
-                    except KeyError as e:
-                        continue # We cannot handle DRC exclusions with board edges
-            except FileNotFoundError:
-                pass # Ignore boards without a project
+        try:
+            exclusions = readBoardDrcExclusions(board)
+            for drcE in exclusions:
+                try:
+                    newObjects = [self.board.GetItem(pcbnew.KIID(itemMapping[x.m_Uuid.AsString()])) for x in drcE.objects]
+                    assert all(x is not None for x in newObjects)
+                    newPosition = doTransformation(drcE.position, rotationAngle, originPoint, translation)
+                    self.drcExclusions.append(DrcExclusion(
+                        drcE.type,
+                        newPosition,
+                        newObjects
+                    ))
+                except KeyError as e:
+                    continue # We cannot handle DRC exclusions with board edges
+        except FileNotFoundError:
+            pass # Ignore boards without a project
 
         self.projectVars.append(self._readProjectVariables(board))
 
@@ -960,7 +977,7 @@ class Panel:
     def appendSubstrate(self, substrate: ToPolygonGeometry) -> None:
         """
         Append a piece of substrate or a list of pieces to the panel. Substrate
-        can be either wxRect or Shapely polygon. Newly appended corners can be
+        can be either BOX2I or Shapely polygon. Newly appended corners can be
         rounded by specifying non-zero filletRadius.
         """
         polygon = toPolygon(substrate)
@@ -1011,13 +1028,13 @@ class Panel:
     def _setVCutSegmentStyle(self, segment, layer):
         segment.SetShape(STROKE_T.S_SEGMENT)
         segment.SetLayer(layer)
-        segment.SetWidth(fromMm(0.4))
+        segment.SetWidth(int(0.4 * mm))
 
     def _setVCutLabelStyle(self, label, layer):
         label.SetText("V-CUT")
         label.SetLayer(layer)
-        label.SetTextThickness(fromMm(0.4))
-        label.SetTextSize(pcbnew.wxSizeMM(2, 2))
+        label.SetTextThickness(int(0.4 * mm))
+        label.SetTextSize(toKiCADPoint((2 * mm, 2 * mm)))
         label.SetHorizJustify(EDA_TEXT_HJUSTIFY_T.GR_TEXT_HJUSTIFY_LEFT)
 
     def _renderVCutV(self):
@@ -1028,8 +1045,8 @@ class Panel:
         for cut in self.vVCuts:
             segment = pcbnew.PCB_SHAPE()
             self._setVCutSegmentStyle(segment, self.vCutLayer)
-            segment.SetStart(pcbnew.wxPoint(cut, minY))
-            segment.SetEnd(pcbnew.wxPoint(cut, maxY))
+            segment.SetStart(toKiCADPoint((cut, minY)))
+            segment.SetEnd(toKiCADPoint((cut, maxY)))
 
             keepout = None
             if self.vCutClearance != 0:
@@ -1042,8 +1059,8 @@ class Panel:
 
             label = pcbnew.PCB_TEXT(segment)
             self._setVCutLabelStyle(label, self.vCutLayer)
-            label.SetPosition(wxPoint(cut, minY - fromMm(3)))
-            label.SetTextAngle(900)
+            label.SetPosition(toKiCADPoint((cut, minY - fromMm(3))))
+            label.SetTextAngle(fromDegrees(90))
             segments.append((label, None))
         return segments
 
@@ -1055,8 +1072,8 @@ class Panel:
         for cut in self.hVCuts:
             segment = pcbnew.PCB_SHAPE()
             self._setVCutSegmentStyle(segment, self.vCutLayer)
-            segment.SetStart(pcbnew.wxPoint(minX, cut))
-            segment.SetEnd(pcbnew.wxPoint(maxX, cut))
+            segment.SetStart(toKiCADPoint((minX, cut)))
+            segment.SetEnd(toKiCADPoint((maxX, cut)))
 
             keepout = None
             if self.vCutClearance != 0:
@@ -1070,13 +1087,13 @@ class Panel:
 
             label = pcbnew.PCB_TEXT(segment)
             self._setVCutLabelStyle(label, self.vCutLayer)
-            label.SetPosition(wxPoint(maxX + fromMm(3), cut))
+            label.SetPosition(toKiCADPoint((maxX + fromMm(3), cut)))
             segments.append((label, None))
         return segments
 
-    def makeGrid(self, boardfile: str, sourceArea: wxRect, rows: int, cols: int,
-                 destination: wxPoint, placer: GridPlacerBase,
-                 rotation: KiAngle=0, netRenamePattern: str="Board_{n}-{orig}",
+    def makeGrid(self, boardfile: str, sourceArea: BOX2I, rows: int, cols: int,
+                 destination: VECTOR2I, placer: GridPlacerBase,
+                 rotation: KiAngle=fromDegrees(0), netRenamePattern: str="Board_{n}-{orig}",
                  refRenamePattern: str="Board_{n}-{orig}", tolerance: KiLength=0,
                  bakeText: bool=False) \
                      -> List[Substrate]:
@@ -1099,7 +1116,7 @@ class Panel:
         cols - the number of boards to place in the horizontal direction
 
         destination - the center coordinates of the first board in the grid (for
-        example, wxPointMM(100,50))
+        example, VECTOR2I(100 * mm, 50 * mm))
 
         rotation - the rotation angle to be applied to the source board before
         placing it
@@ -1136,6 +1153,8 @@ class Panel:
         Returns a list of the placed substrates. You can use these to generate
         tabs, frames, backbones, etc.
         """
+        if not isinstance(rotation, EDA_ANGLE):
+            raise RuntimeError(f"Rotation values have to be passed as `EDA_ANGLE` not {type(rotation)}")
         substrateCount = len(self.substrates)
         netRenamer = lambda x, y: netRenamePattern.format(n=x, orig=y)
         refRenamer = lambda x, y: refRenamePattern.format(n=x, orig=y)
@@ -1336,19 +1355,23 @@ class Panel:
         to
         """
         bloatedSubstrate = prep(self.boardSubstrate.substrates.buffer(SHP_EPSILON))
+        offsetCuts = []
         for cut in cuts:
             cut = cut.simplify(SHP_EPSILON) # Remove self-intersecting geometry
             cut = prolongCut(cut, prolongation)
             offsetCut = cut.parallel_offset(offset, "left")
-            length = offsetCut.length
+            offsetCuts.append(offsetCut)
+
+        for cut in listGeometries(shapely.ops.unary_union(offsetCuts).simplify(SHP_EPSILON)):
+            length = cut.length
             count = int(length / spacing) + 1
             for i in range(count):
                 if count == 1:
-                    hole = offsetCut.interpolate(0.5, normalized=True)
+                    hole = cut.interpolate(0.5, normalized=True)
                 else:
-                    hole = offsetCut.interpolate( i * length / (count - 1) )
+                    hole = cut.interpolate( i * length / (count - 1) )
                 if bloatedSubstrate.intersects(hole):
-                    self.addNPTHole(wxPoint(hole.x, hole.y), diameter)
+                    self.addNPTHole(toKiCADPoint((hole.x, hole.y)), diameter)
 
     def makeCutsToLayer(self, cuts, layer=Layer.Cmts_User, prolongation=fromMm(0)):
         """
@@ -1365,21 +1388,21 @@ class Panel:
                 segment = pcbnew.PCB_SHAPE()
                 segment.SetShape(STROKE_T.S_SEGMENT)
                 segment.SetLayer(layer)
-                segment.SetStart(wxPoint(*a))
-                segment.SetEnd(wxPoint(*b))
+                segment.SetStart(toKiCADPoint(a))
+                segment.SetEnd(toKiCADPoint(b))
                 segment.SetWidth(fromMm(0.3))
                 self.board.Add(segment)
 
-    def addNPTHole(self, position, diameter, paste=False):
+    def addNPTHole(self, position: VECTOR2I, diameter: KiLength, paste: bool=False) -> None:
         """
-        Add a drilled non-plated hole to the position (`wxPoint`) with given
+        Add a drilled non-plated hole to the position (`VECTOR2I`) with given
         diameter. The paste option allows to place the hole on the paste layers.
         """
         footprint = pcbnew.FootprintLoad(KIKIT_LIB, "NPTH")
         footprint.SetPosition(position)
         for pad in footprint.Pads():
-            pad.SetDrillSize(pcbnew.wxSize(diameter, diameter))
-            pad.SetSize(pcbnew.wxSize(diameter, diameter))
+            pad.SetDrillSize(toKiCADPoint((diameter, diameter)))
+            pad.SetSize(toKiCADPoint((diameter, diameter)))
             if paste:
                 layerSet = pad.GetLayerSet()
                 layerSet.AddLayer(Layer.F_Paste)
@@ -1387,11 +1410,15 @@ class Panel:
                 pad.SetLayerSet(layerSet)
         self.board.Add(footprint)
 
-    def addFiducial(self, position, copperDiameter, openingDiameter, bottom=False):
+    def addFiducial(self, position: VECTOR2I, copperDiameter: KiLength,
+                    openingDiameter: KiLength, bottom: bool = False,
+                    paste: bool = False) -> None:
         """
-        Add fiducial, i.e round copper pad with solder mask opening to the position (`wxPoint`),
-        with given copperDiameter and openingDiameter. By setting bottom to True, the fiducial
-        is placed on bottom side.
+        Add fiducial, i.e round copper pad with solder mask opening to the
+        position (`VECTOR2I`), with given copperDiameter and openingDiameter. By
+        setting bottom to True, the fiducial is placed on bottom side. The
+        fiducial can also have an opening on the stencil. This is enabled by
+        paste = True.
         """
         footprint = pcbnew.FootprintLoad(KIKIT_LIB, "Fiducial")
         # As of V6, the footprint first needs to be added to the board,
@@ -1399,15 +1426,16 @@ class Panel:
         # and KiCAD crashes.
         self.board.Add(footprint)
         footprint.SetPosition(position)
-        if(bottom):
-            if isV6():
-                footprint.Flip(position, False)
-            else:
-                footprint.Flip(position)
         for pad in footprint.Pads():
-            pad.SetSize(pcbnew.wxSize(copperDiameter, copperDiameter))
+            pad.SetSize(toKiCADPoint((copperDiameter, copperDiameter)))
             pad.SetLocalSolderMaskMargin(int((openingDiameter - copperDiameter) / 2))
             pad.SetLocalClearance(int((openingDiameter - copperDiameter) / 2))
+            if paste:
+                layerSet = pad.GetLayerSet()
+                layerSet.AddLayer(Layer.F_Paste)
+                pad.SetLayerSet(layerSet)
+        if bottom:
+            footprint.Flip(position, False)
 
 
     def panelCorners(self, horizontalOffset=0, verticalOffset=0):
@@ -1416,14 +1444,15 @@ class Panel:
         corners of the panel. You can specify offsets.
         """
         minx, miny, maxx, maxy = self.panelBBox()
-        topLeft = wxPoint(minx + horizontalOffset, miny + verticalOffset)
-        topRight = wxPoint(maxx - horizontalOffset, miny + verticalOffset)
-        bottomLeft = wxPoint(minx + horizontalOffset, maxy - verticalOffset)
-        bottomRight = wxPoint(maxx - horizontalOffset, maxy - verticalOffset)
+        topLeft = toKiCADPoint((minx + horizontalOffset, miny + verticalOffset))
+        topRight = toKiCADPoint((maxx - horizontalOffset, miny + verticalOffset))
+        bottomLeft = toKiCADPoint((minx + horizontalOffset, maxy - verticalOffset))
+        bottomRight = toKiCADPoint((maxx - horizontalOffset, maxy - verticalOffset))
         return [topLeft, topRight, bottomLeft, bottomRight]
 
-    def addCornerFiducials(self, fidCount, horizontalOffset, verticalOffset,
-            copperDiameter, openingDiameter):
+    def addCornerFiducials(self, fidCount: int, horizontalOffset: KiLength,
+                           verticalOffset: KiLength, copperDiameter: KiLength,
+                           openingDiameter: KiLength, paste: bool = False) -> None:
         """
         Add up to 4 fiducials to the top-left, top-right, bottom-left and
         bottom-right corner of the board (in this order). This function expects
@@ -1432,8 +1461,8 @@ class Panel:
         The offsets are measured from the outer edges of the substrate.
         """
         for pos in self.panelCorners(horizontalOffset, verticalOffset)[:fidCount]:
-            self.addFiducial(pos, copperDiameter, openingDiameter, False)
-            self.addFiducial(pos, copperDiameter, openingDiameter, True)
+            self.addFiducial(pos, copperDiameter, openingDiameter, False, paste)
+            self.addFiducial(pos, copperDiameter, openingDiameter, True, paste)
 
     def addCornerTooling(self, holeCount, horizontalOffset, verticalOffset,
                          diameter, paste=False):
@@ -1450,9 +1479,22 @@ class Panel:
     def addMillFillets(self, millRadius):
         """
         Add fillets to inner conernes which will be produced a by mill with
-        given radius.
+        given radius. This operation simulares milling.
         """
         self.boardSubstrate.millFillets(millRadius)
+
+    def addTabMillFillets(self, millRadius):
+        """
+        Add fillets to inner conernes which will be produced a by mill with
+        given radius. Simulates milling only on the outside of the board;
+        internal features of the board are not affected.
+        """
+        self.boardSubstrate.millFillets(millRadius)
+        holes = []
+        for s in self.substrates:
+            for int in s.interiors():
+                holes.append(Polygon(int.coords))
+        self.boardSubstrate.cut(shapely.ops.unary_union(holes))
 
     def clearTabsAnnotations(self):
         """
@@ -1560,18 +1602,18 @@ class Panel:
             midy = (miny + maxy) / 2
 
             for x, y in product([minx, maxx], [miny, maxy]):
-                dir = normalize((midx - x, midy - y))
+                dir = normalize((np.sign(midx - x), np.sign(midy - y)))
                 a = TabAnnotation(None, (x, y), dir, width)
                 self.substrates[i].annotations.append(a)
 
-    def _buildSingleFullTab(self, s: Substrate, a: KiKitPoint, b: KiKitPoint,
-                            cutoutDepth: KiLength) \
+    def _buildSingleFullTab(self, s: Substrate, a: KiPoint, b: KiPoint,
+                            cutoutDepth: KiLength, patchConrners: bool) \
             -> Tuple[List[LineString], List[Polygon]]:
         partitionFace = LineString([a, b])
 
         npa, npb = np.array(a), np.array(b)
 
-        spanDirection = np.around(normalize(npb - npa))
+        spanDirection = np.around(normalize(npb - npa), 2)
         spanDirection = np.array([spanDirection[1], -spanDirection[0]])
 
         # We have to ensure that the direction always points towards the substrate
@@ -1585,24 +1627,25 @@ class Panel:
         candidateBox = Polygon([npa - spanDirection, npb - spanDirection, npb + sideEdge, npa + sideEdge])
         faceCandidate = s.exterior().intersection(candidateBox)
 
-        expectedDirection = np.around(normalize(npb - npa))
+        expectedDirection = np.around(normalize(npb - npa), 2)
         faceSegments = [LineString(x) for x in linestringToSegments(faceCandidate.exterior)
             if np.array_equal(
-                np.around(normalize(np.array(x[0]) - np.array(x[1]))),
+                np.around(normalize(np.array(x[0]) - np.array(x[1])), 2),
                 expectedDirection) or
                np.array_equal(
-                np.around(normalize(np.array(x[1]) - np.array(x[0]))),
+                np.around(normalize(np.array(x[1]) - np.array(x[0])), 2),
                 expectedDirection)]
-        faceDistances = [(x, np.around(partitionFace.distance(x))) for x in faceSegments]
+        faceDistances = [(x, np.around(partitionFace.distance(x), 2)) for x in faceSegments]
         minFaceDistance = min(faceDistances, key=lambda x: x[1])[1]
 
         cutFaces = [x for x, d in faceDistances if d == minFaceDistance]
         tabs, cuts = [], []
         for cutLine in listGeometries(shapely.ops.unary_union(cutFaces)):
-            polygon = Polygon(list(cutLine.coords) +
-                [np.array(cutLine.coords[-1]) - minFaceDistance * spanDirection,
-                 np.array(cutLine.coords[0]) - minFaceDistance * spanDirection])
-            tabs.append(polygon)
+            if minFaceDistance > 0: # Do not generate degenerated polygons
+                polygon = Polygon(list(cutLine.coords) +
+                    [np.array(cutLine.coords[-1]) - minFaceDistance * spanDirection,
+                    np.array(cutLine.coords[0]) - minFaceDistance * spanDirection])
+                tabs.append(polygon)
             cuts.append(LineString(list(cutLine.coords)[::-1]))
 
         solidThickness = max(0, minFaceDistance - cutoutDepth)
@@ -1610,17 +1653,18 @@ class Panel:
             tabs.append(Polygon([npa, npb,
                                  npb + spanDirection * solidThickness,
                                  npa + spanDirection * solidThickness]))
-
-        # Generate corner patches - we don't want cutouts on the board corners,
-        # so we create a triangle that will patch it.
-        for point in [npa, npb]:
-            corner = min(s.exteriorRing().coords, key=lambda x: Point(*x).distance(Point(*point)))
-            patch = Polygon([point, corner, corner - minFaceDistance * spanDirection])
-            tabs.append(patch)
+        if patchConrners:
+            # Generate corner patches - we don't want cutouts on the board corners,
+            # so we create a triangle that will patch it.
+            for point in [npa, npb]:
+                corner = min(s.exteriorRing().coords, key=lambda x: Point(*x).distance(Point(*point)))
+                patch = Polygon([point, corner, corner - minFaceDistance * spanDirection])
+                tabs.append(patch)
         return cuts, tabs
 
 
-    def buildFullTabs(self, cutoutDepth: KiLength) -> List[shapely.geometry.LineString]:
+    def buildFullTabs(self, cutoutDepth: KiLength, patchCorners: bool = True) \
+            -> List[shapely.geometry.LineString]:
         """
         Make full tabs. This strategy basically cuts the bounding boxes of the
         PCBs. Not suitable for mousebites or PCB that doesn't have a rectangular
@@ -1638,7 +1682,7 @@ class Panel:
         for s in self.substrates:
             for fragment in listGeometries(s.partitionLine):
                 for a, b in linestringToSegments(fragment):
-                    c, t = self._buildSingleFullTab(s, a, b, cutoutDepth)
+                    c, t = self._buildSingleFullTab(s, a, b, cutoutDepth, patchCorners)
                     self.appendSubstrate(t)
                     cuts += c
 
@@ -1692,13 +1736,13 @@ class Panel:
             zoneContainer = pcbnew.ZONE(self.board)
             if hatched:
                 zoneContainer.SetFillMode(pcbnew.ZONE_FILL_MODE_HATCH_PATTERN)
-                zoneContainer.SetHatchOrientation(orientation // 10)
+                zoneContainer.SetHatchOrientation(orientation)
                 zoneContainer.SetHatchGap(strokeSpacing)
                 zoneContainer.SetHatchThickness(strokeWidth)
             zoneContainer.Outline().AddOutline(linestringToKicad(g.exterior))
             for hole in g.interiors:
                 zoneContainer.Outline().AddHole(linestringToKicad(hole))
-            zoneContainer.SetPriority(0)
+            zoneContainer.SetAssignedPriority(0)
 
             for l in layers:
                 if not self.board.GetEnabledLayers().Contains(l):
@@ -1735,12 +1779,12 @@ class Panel:
         zone.SetDoNotAllowVias(noVias)
         zone.SetDoNotAllowCopperPour(noCopper)
 
-        zone.SetLayerSet(pcbnew.LSET.AllCuMask())
+        zone.SetLayerSet(pcbnew.LSET.AllCuMask(self.copperLayerCount))
 
         self.board.Add(zone)
         return zone
 
-    def addText(self, text, position, orientation=0,
+    def addText(self, text, position, orientation=fromDegrees(0),
                 width=fromMm(1.5), height=fromMm(1.5), thickness=fromMm(0.3),
                 hJustify=EDA_TEXT_HJUSTIFY_T.GR_TEXT_HJUSTIFY_CENTER,
                 vJustify=EDA_TEXT_VJUSTIFY_T.GR_TEXT_VJUSTIFY_CENTER,
@@ -1754,7 +1798,7 @@ class Panel:
         textObject.SetTextX(position[0])
         textObject.SetTextY(position[1])
         textObject.SetTextThickness(thickness)
-        textObject.SetTextSize(pcbnew.wxSize(width, height))
+        textObject.SetTextSize(toKiCADPoint((width, height)))
         textObject.SetHorizJustify(hJustify)
         textObject.SetVertJustify(vJustify)
         textObject.SetTextAngle(orientation)
@@ -1766,31 +1810,19 @@ class Panel:
         """
         Set the auxiliary origin used e.g., for drill files
         """
-        if isV6():
-            self.board.GetDesignSettings().SetAuxOrigin(point)
-        else:
-            self.board.SetAuxOrigin(point)
+        self.board.GetDesignSettings().SetAuxOrigin(point)
 
     def getAuxiliaryOrigin(self):
-        if isV6():
-            return self.board.GetDesignSettings().GetAuxOrigin()
-        else:
-            return self.board.GetAuxOrigin()
+        return self.board.GetDesignSettings().GetAuxOrigin()
 
     def setGridOrigin(self, point):
         """
         Set grid origin
         """
-        if isV6():
-            self.board.GetDesignSettings().SetGridOrigin(point)
-        else:
-            self.board.SetGridOrigin(point)
+        self.board.GetDesignSettings().SetGridOrigin(point)
 
     def getGridOrigin(self):
-        if isV6():
-            return self.board.GetDesignSettings().GetGridOrigin()
-        else:
-            return self.board.GetGridOrigin()
+        return self.board.GetDesignSettings().GetGridOrigin()
 
     def _buildPartitionLineFromBB(self, partition):
         for s in self.substrates:
@@ -1850,8 +1882,8 @@ class Panel:
         segment.SetShape(STROKE_T.S_SEGMENT)
         segment.SetLayer(layer)
         segment.SetWidth(thickness)
-        segment.SetStart(pcbnew.wxPoint(start[0], start[1]))
-        segment.SetEnd(pcbnew.wxPoint(end[0], end[1]))
+        segment.SetStart(toKiCADPoint((start[0], start[1])))
+        segment.SetEnd(toKiCADPoint((end[0], end[1])))
         self.board.Add(segment)
         return segment
 
@@ -1881,7 +1913,8 @@ class Panel:
         self._renderLines(lines, Layer.Cmts_User, fromMm(0.5))
 
     def renderBackbone(self, vthickness: KiLength, hthickness: KiLength,
-            vcut: bool, hcut: bool, vskip: int=0, hskip: int=0):
+            vcut: bool, hcut: bool, vskip: int=0, hskip: int=0,
+            vfirst: int=0, hfirst: int=0):
         """
         Render horizontal and vertical backbone lines. If zero thickness is
         specified, no backbone is rendered.
@@ -1892,16 +1925,23 @@ class Panel:
         rendering one (i.e., skip 1 meand that every other backbone will be
         rendered)
 
+        vfirst and hfirst are indices of the first backbone to render. They are
+        1-indexed.
+
         Return a list of cuts
         """
+        if vfirst == 0:
+            vfirst = vskip + 1
+        if hfirst == 0:
+            hfirst = hskip + 1
+
         hbones = [] if hthickness == 0 \
                     else list(filter(lambda l: isHorizontal(l.coords[0], l.coords[1]), self.backboneLines))
-        activeHbones = skipBackbones(hbones, hskip, lambda x: x.coords[0][1])
+        activeHbones = skipBackbones(hbones, hskip, hfirst, lambda x: x.coords[0][1])
 
         vbones = [] if vthickness == 0 \
                     else list(filter(lambda l: isVertical(l.coords[0], l.coords[1]), self.backboneLines))
-        activeVbones = skipBackbones(vbones, vskip, lambda x: x.coords[0][0])
-
+        activeVbones = skipBackbones(vbones, vskip, vfirst, lambda x: x.coords[0][0])
 
         cutpoints = commonPoints(self.backboneLines)
         pieces, cuts = [], []
@@ -1966,6 +2006,7 @@ class Panel:
         return cuts
 
     def addCornerFillets(self, radius):
+        self.filletSize = radius
         corners = self.panelCorners()
         filletOrigins = self.panelCorners(radius, radius)
         for corner, opposite in zip(corners, filletOrigins):
@@ -1980,10 +2021,20 @@ class Panel:
             cutShape = square.difference(filletCircle)
             self.boardSubstrate.cut(cutShape)
 
-    def addCornerChamfers(self, size):
+    def addCornerChamfers(self, horizontalSize: KiLength, verticalSize: Optional[KiLength] = None):
+        """
+        Add chamfers to the panel frame. The chamfer is specified as size in
+        horizontal and vertical direction. If you specify only the horizontal
+        one, the chamfering will be 45°.
+        """
+        if verticalSize is None:
+            verticalSize = horizontalSize
+        self.chamferWidth = horizontalSize
+        self.chamferHeight = verticalSize
+
         corners = self.panelCorners(-SHP_EPSILON, -SHP_EPSILON)
-        verticalStops = self.panelCorners(-SHP_EPSILON, size)
-        horizontalStops = self.panelCorners(size, -SHP_EPSILON)
+        verticalStops = self.panelCorners(-SHP_EPSILON, verticalSize)
+        horizontalStops = self.panelCorners(horizontalSize, -SHP_EPSILON)
         for t, v, h in zip(corners, verticalStops, horizontalStops):
             cutPoly = Polygon([t, v, h, t])
             self.boardSubstrate.cut(cutPoly)
@@ -1994,7 +2045,7 @@ class Panel:
         specify the panel placement in the sheet. When we translate panel as the
         last operation, none of the operations have to be placement-aware.
         """
-        vec = wxPoint(vec[0], vec[1])
+        vec = toKiCADPoint(vec)
         for drawing in self.board.GetDrawings():
             drawing.Move(vec)
         for footprint in self.board.GetFootprints():
@@ -2016,6 +2067,40 @@ class Panel:
         self.setGridOrigin(self.getGridOrigin() + vec)
         for drcE in self.drcExclusions:
             drcE.position += vec
+
+    def addPanelDimensions(self, layer: Layer, offset: KiLength) -> None:
+        """
+        Add vertial and horizontal dimensions to the panel
+        """
+        minx, miny, maxx, maxy = self.panelBBox()
+
+        hDim = pcbnew.PCB_DIM_ORTHOGONAL(self.board)
+        hDim.SetOrientation(pcbnew.PCB_DIM_ORTHOGONAL.DIR_HORIZONTAL)
+        hDim.SetHeight(-offset)
+        hDim.SetStart(toKiCADPoint((minx, miny)))
+        hDim.SetEnd(toKiCADPoint((maxx, miny)))
+        hDim.SetLayer(layer)
+        hDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MILLIMETRES)
+        hDim.SetSuppressZeroes(True)
+        if self.chamferHeight is not None:
+            hDim.SetExtensionOffset(-self.chamferHeight)
+        if self.filletSize is not None:
+            hDim.SetExtensionOffset(-self.filletSize)
+        self.board.Add(hDim)
+
+        vDim = pcbnew.PCB_DIM_ORTHOGONAL(self.board)
+        vDim.SetOrientation(pcbnew.PCB_DIM_ORTHOGONAL.DIR_VERTICAL)
+        vDim.SetHeight(-offset)
+        vDim.SetStart(toKiCADPoint((minx, miny)))
+        vDim.SetEnd(toKiCADPoint((minx, maxy)))
+        vDim.SetLayer(layer)
+        vDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MILLIMETRES)
+        vDim.SetSuppressZeroes(True)
+        if self.chamferWidth is not None:
+            vDim.SetExtensionOffset(-self.chamferWidth)
+        if self.filletSize is not None:
+            vDim.SetExtensionOffset(-self.filletSize)
+        self.board.Add(vDim)
 
 
 def getFootprintByReference(board, reference):
