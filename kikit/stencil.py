@@ -18,6 +18,7 @@ from shapely.geometry import Point
 
 
 OUTER_BORDER = fromMm(7.5)
+OUTER_BORDER_2 = round(OUTER_BORDER/2)
 INNER_BORDER = fromMm(5)
 MOUNTING_HOLES_COUNT = 3
 MOUNTING_HOLE_R = fromMm(1)
@@ -60,9 +61,9 @@ def addBite(board, origin, direction, normal, thickness):
     """
     direction = normalize(direction) * thickness
     normal = normalize(normal) * thickness
-    center = VECTOR2I(origin[0], origin[1]) + VECTOR2I(normal[0], normal[1])
+    center = VECTOR2I(round(origin[0]), round(origin[1])) + VECTOR2I(round(normal[0]), round(normal[1]))
     start = origin
-    end = center + VECTOR2I(direction[0], direction[1])
+    end = center + VECTOR2I(round(direction[0]), round(direction[1]))
     # addLine(board, end, end + normal / 2, thickness)
     addRoundedCorner(board, center, start, end, thickness)
 
@@ -70,8 +71,8 @@ def numberOfCuts(length, bridgeWidth, bridgeSpacing):
     """
     Return number of bridges which fit inside the length and cut length
     """
-    count = int(np.floor((length + bridgeWidth) / (bridgeWidth + bridgeSpacing)))
-    cutLength = (length - (count - 1) * bridgeWidth) / count
+    count = round(np.floor((length + bridgeWidth) / (bridgeWidth + bridgeSpacing)))
+    cutLength = round((length - (count - 1) * bridgeWidth) / count)
     return count, cutLength
 
 def addFrame(board, rect, bridgeWidth, bridgeSpacing, clearance):
@@ -91,7 +92,7 @@ def addFrame(board, rect, bridgeWidth, bridgeSpacing, clearance):
 
     count, cutLength = numberOfCuts(rect.GetWidth() - 2 * R, bridgeWidth, bridgeSpacing)
     for i in range(count):
-        start = rect.GetX() + R + i * bridgeWidth + i * cutLength
+        start = round(rect.GetX() + R + i * bridgeWidth + i * cutLength)
         end = start + cutLength
 
         y1, y2 = rect.GetY(), rect.GetY() + rect.GetHeight()
@@ -128,7 +129,7 @@ def addHole(board, position, radius):
     circle.SetShape(STROKE_T.S_CIRCLE)
     circle.SetCenter(VECTOR2I(position[0], position[1]))
     # Set 3'oclock point of the circle to set radius
-    circle.SetEnd(VECTOR2I(position[0], position[1]) + VECTOR2I(radius/2, 0))
+    circle.SetEnd(VECTOR2I(position[0], position[1]) + VECTOR2I(round(radius/2), 0))
 
     circle.SetWidth(radius)
     circle.SetLayer(Layer.F_Paste)
@@ -155,28 +156,28 @@ def addJigFrame(board, jigFrameSize, bridgeWidth=fromMm(2),
     addFrame(board, cutSize, bridgeWidth, bridgeSpacing, clearance)
 
     for i in range(MOUNTING_HOLES_COUNT):
-        x = frameSize.GetX() + OUTER_BORDER / 2 + (i + 1) * (frameSize.GetWidth() - OUTER_BORDER) / (MOUNTING_HOLES_COUNT + 1)
-        addHole(board, VECTOR2I(x, OUTER_BORDER / 2 + frameSize.GetY()), MOUNTING_HOLE_R)
-        addHole(board, VECTOR2I(x, - OUTER_BORDER / 2 +frameSize.GetY() + frameSize.GetHeight()), MOUNTING_HOLE_R)
+        x = round(frameSize.GetX() + OUTER_BORDER_2 + (i + 1) * (frameSize.GetWidth() - OUTER_BORDER) / (MOUNTING_HOLES_COUNT + 1))
+        addHole(board, VECTOR2I(x, OUTER_BORDER_2 + frameSize.GetY()), MOUNTING_HOLE_R)
+        addHole(board, VECTOR2I(x, -OUTER_BORDER_2 +frameSize.GetY() + frameSize.GetHeight()), MOUNTING_HOLE_R)
     for i in range(MOUNTING_HOLES_COUNT):
-        y = frameSize.GetY() + OUTER_BORDER / 2 + (i + 1) * (frameSize.GetHeight() - OUTER_BORDER) / (MOUNTING_HOLES_COUNT + 1)
-        addHole(board, VECTOR2I(OUTER_BORDER / 2 + frameSize.GetX(), y), MOUNTING_HOLE_R)
-        addHole(board, VECTOR2I(- OUTER_BORDER / 2 +frameSize.GetX() + frameSize.GetWidth(), y), MOUNTING_HOLE_R)
+        y = round(frameSize.GetY() + OUTER_BORDER_2 + (i + 1) * (frameSize.GetHeight() - OUTER_BORDER) / (MOUNTING_HOLES_COUNT + 1))
+        addHole(board, VECTOR2I(OUTER_BORDER_2 + frameSize.GetX(), y), MOUNTING_HOLE_R)
+        addHole(board, VECTOR2I(-OUTER_BORDER_2 + frameSize.GetX() + frameSize.GetWidth(), y), MOUNTING_HOLE_R)
 
     PIN_TOLERANCE = fromMm(0.05)
-    addHole(board, tl(frameSize) + VECTOR2I(OUTER_BORDER / 2, OUTER_BORDER / 2), MOUNTING_HOLE_R + PIN_TOLERANCE)
-    addHole(board, tr(frameSize) + VECTOR2I(-OUTER_BORDER / 2, OUTER_BORDER / 2), MOUNTING_HOLE_R + PIN_TOLERANCE)
-    addHole(board, br(frameSize) + VECTOR2I(-OUTER_BORDER / 2, -OUTER_BORDER / 2), MOUNTING_HOLE_R + PIN_TOLERANCE)
-    addHole(board, bl(frameSize) + VECTOR2I(OUTER_BORDER / 2, -OUTER_BORDER / 2), MOUNTING_HOLE_R + PIN_TOLERANCE)
+    addHole(board, tl(frameSize) + VECTOR2I(OUTER_BORDER_2, OUTER_BORDER_2), MOUNTING_HOLE_R + PIN_TOLERANCE)
+    addHole(board, tr(frameSize) + VECTOR2I(-OUTER_BORDER_2, OUTER_BORDER_2), MOUNTING_HOLE_R + PIN_TOLERANCE)
+    addHole(board, br(frameSize) + VECTOR2I(-OUTER_BORDER_2, -OUTER_BORDER_2), MOUNTING_HOLE_R + PIN_TOLERANCE)
+    addHole(board, bl(frameSize) + VECTOR2I(OUTER_BORDER_2, -OUTER_BORDER_2), MOUNTING_HOLE_R + PIN_TOLERANCE)
 
 def jigMountingHoles(jigFrameSize, origin=VECTOR2I(0, 0)):
     """ Get list of all mounting holes in a jig of given size """
     w, h = jigFrameSize
     holes = [
-        VECTOR2I(0, (w + INNER_BORDER) / 2),
-        VECTOR2I(0, -(w + INNER_BORDER) / 2),
-        VECTOR2I((h + INNER_BORDER) / 2, 0),
-        VECTOR2I(-(h + INNER_BORDER) / 2, 0),
+        VECTOR2I(0, round((w + INNER_BORDER) / 2)),
+        VECTOR2I(0, round(-(w + INNER_BORDER) / 2)),
+        VECTOR2I(round((h + INNER_BORDER) / 2), 0),
+        VECTOR2I(round(-(h + INNER_BORDER) / 2), 0),
     ]
     return [x + origin for x in holes]
 
