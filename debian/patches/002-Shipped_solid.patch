@@ -1,6 +1,6 @@
 --- a/kikit/stencil.py
 +++ b/kikit/stencil.py
-@@ -9,6 +9,12 @@
+@@ -8,6 +8,12 @@
  from kikit.substrate import Substrate, extractRings, toShapely, linestringToKicad
  from kikit.export import gerberImpl, pasteDxfExport
  from kikit.export import exportSettingsJlcpcb

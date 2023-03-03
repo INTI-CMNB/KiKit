@@ -1,6 +1,6 @@
 --- a/setup.py
 +++ b/setup.py
-@@ -57,9 +57,6 @@
+@@ -64,9 +64,6 @@
          "pybars3>=0.9",
          "commentjson>=0.8"
      ],

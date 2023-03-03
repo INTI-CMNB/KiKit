@@ -1,6 +1,6 @@
 --- a/setup.py
 +++ b/setup.py
-@@ -36,7 +36,6 @@
+@@ -43,7 +43,6 @@
      name="KiKit",
      python_requires='>=3.7',
      version=versioneer.get_version(),
