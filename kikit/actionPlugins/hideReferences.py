@@ -146,7 +146,7 @@ class HideReferencesDialog(wx.Dialog):
             event.Skip()
 
     def OnCancel(self, event):
-        self.Hide()
+        destroyDialog(self)
 
     def OnApply(self, event):
         if self.actionCallback is not None:
@@ -210,14 +210,6 @@ class HideReferencesDialog(wx.Dialog):
 
 
 class HideReferencesPlugin(pcbnew.ActionPlugin):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dialog = initDialog(lambda: HideReferencesDialog(
-                                 board=None, action=lambda d: self.action(d)))
-
-    def __del__(self):
-        destroyDialog(self.dialog)
-
     def defaults(self):
         self.name = "KiKit: Show/hide references"
         self.category = "KiKit"
@@ -227,7 +219,6 @@ class HideReferencesPlugin(pcbnew.ActionPlugin):
 
     def action(self, dialog):
         try:
-            dialog = self.dialog
             if dialog.ModifyReferences():
                 modify.references(dialog.board, dialog.GetShowLabels(),
                      dialog.GetPattern(), dialog.GetActiveLayers())
@@ -242,8 +233,9 @@ class HideReferencesPlugin(pcbnew.ActionPlugin):
 
     def Run(self):
         try:
-            self.dialog.board = pcbnew.GetBoard()
-            self.dialog.Show()
+            dialog = initDialog(lambda: HideReferencesDialog(board=pcbnew.GetBoard(),
+                                action=lambda d: self.action(d)))
+            dialog.Show()
         except Exception as e:
             dlg = wx.MessageDialog(None, f"Cannot perform: {e}", "Error", wx.OK)
             dlg.ShowModal()
