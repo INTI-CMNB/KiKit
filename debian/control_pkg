@@ -10,7 +10,7 @@ X-Python3-Version: >= 3.2
 Package: kikit
 Architecture: all
 Multi-Arch: foreign
-Depends: ${misc:Depends}, ${python3:Depends}, kicad (>= 6.0.0) | kicad-nightly (>= 6.0.0), openscad
+Depends: ${misc:Depends}, ${python3:Depends}, kicad (>= 6.0.0) | kicad-nightly (>= 6.0.0), kicad-footprints | kicad-nightly-footprints, kicad-symbols | kicad-nightly-symbols, openscad
 Suggests: kikit-doc
 Description: KiKit - Automation for KiCAD
  KiKit is a Python library, KiCAD plugin and a CLI tool to automate several

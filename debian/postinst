@@ -1,33 +1,29 @@
 #!/usr/bin/python3
-fp = '/usr/share/kicad/template/fp-lib-table'
-lns = []
-found = False
-with open(fp, 'r') as f:
-    for ln in f:
-        if 'name "kikit"' in ln:
-            # Already there
-            found = True
-            break
-        lns.append(ln)
+import os
 
-if not found:
-    lns.insert(-1, '  (lib (name "kikit")(type "KiCad")(uri "${KISYSMOD}/kikit.pretty")(options "")(descr "KiKit footprints"))\n')
-    with open(fp, 'w') as f:
-        f.writelines(lns)
 
-lns = []
-found = False
-sy = '/usr/share/kicad/template/sym-lib-table'
-with open(sy, 'r') as f:
-    for ln in f:
-        if 'name "kikit"' in ln:
-            # Already there
-            found = True
-            break
-        lns.append(ln)
+def add_lib(fp, elems, ext):
+    if not os.path.isfile(fp):
+        return
+    lns = []
+    found = False
+    with open(fp, 'r') as f:
+        for ln in f:
+            if 'name "kikit"' in ln:
+                # Already there
+                found = True
+                break
+            lns.append(ln)
 
-if not found:
-    lns.insert(-1, '  (lib (name "kikit")(type "KiCad")(uri "${KICAD6_SYMBOL_DIR}/kikit.kicad_sym")(options "")(descr "KiKit symbols"))\n')
-    with open(sy, 'w') as f:
-        f.writelines(lns)
+    if not found:
+        lns.insert(-1, f'  (lib (name "kikit")(type "KiCad")(uri "/usr/share/kicad/{elems}/kikit.{ext}")(options "")(descr "KiKit {elems}"))\n')
+        with open(fp, 'w') as f:
+            f.writelines(lns)
 
+
+kicad_share = '/usr/share/kicad/'
+kicad_nightly_share = '/usr/share/kicad-nightly/'
+add_lib(kicad_share+'template/fp-lib-table', 'footprints', 'pretty')
+add_lib(kicad_nightly_share+'template/fp-lib-table', 'footprints', 'pretty')
+add_lib(kicad_share+'template/sym-lib-table', 'symbols', 'kicad_sym')
+add_lib(kicad_nightly_share+'template/sym-lib-table', 'symbols', 'kicad_sym')

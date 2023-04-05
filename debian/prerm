@@ -1,5 +1,10 @@
 #!/usr/bin/python3
+import os
+
+
 def filter(fp):
+    if not os.path.isfile(fp):
+        return
     lns = []
     with open(fp, 'r') as f:
         for ln in f:
@@ -8,5 +13,8 @@ def filter(fp):
     with open(fp, 'w') as f:
          f.writelines(lns)
 
+
 filter('/usr/share/kicad/template/fp-lib-table')
 filter('/usr/share/kicad/template/sym-lib-table')
+filter('/usr/share/kicad-nightly/template/fp-lib-table')
+filter('/usr/share/kicad-nightly/template/sym-lib-table')
