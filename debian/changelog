@@ -1,3 +1,10 @@
+kikit (1.3.0-8) stable; urgency=medium
+
+  * Updated to upstream 2023-07-24.
+  * Main reason: Markdown table support
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Tue, 01 Aug 2023 07:17:21 -0300
+
 kikit (1.3.0-7) stable; urgency=medium
 
   * Support for nightly in the pre and post install scripts
