@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        kicad-version: [v6, v7, nightly]
+        kicad-version: [v6, v7, v7-testing]
     steps:
       - uses: actions/checkout@v3
       - uses: ./.github/actions/setup-kicad
@@ -64,12 +64,14 @@ jobs:
             suffix: ""
             platform: linux/amd64
             repo: ubuntu
+            kicad_version: "6.0"
             additional_packages: ""
             additional_python_packages: ""
           - name: "m1"
             suffix: -m1
             platform: linux/arm64/v8
             repo: arm64v8/ubuntu
+            kicad_version: "6.0"
             additional_packages: gcc-aarch64-linux-gnu libgeos-dev
             additional_python_packages: python3-dev
           - name: "x64 v7"
@@ -111,5 +113,6 @@ jobs:
             REPO=${{ matrix.build-config.repo }}
             ADDITIONAL_PACKAGES=${{ matrix.build-config.additional_packages }}
             ADDITIONAL_PYTHON_PACKAGES=${{ matrix.build-config.additional_python_packages }}
+            KICAD_VERSION=${{ matrix.build-config.kicad_version }}
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

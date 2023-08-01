@@ -72,7 +72,7 @@ manufacturing data and board presentation pages.
 - if you have multiple boards in a single file, you can split them
 - simplifying [multi-board project in KiCAD](https://yaqwsx.github.io/KiKit/latest/multiboard/)
 - [automated export of gerbers and assembly data](https://yaqwsx.github.io/KiKit/latest/fabrication/intro/)
-- [3D printed self-registering solder paste stencils](https://yaqwsx.github.io/KiKit/upstream/latest/#3d-printed-stencils)
+- [3D printed self-registering solder paste stencils](https://yaqwsx.github.io/KiKit/upstream/latest/stencil/#3d-printed-stencils)
 - [steel stencils with alignment jig](https://yaqwsx.github.io/KiKit/latest/stencil/#steel-stencils)
 - create powerfull shell scrips or Makefiles which automates your workflow...
 - ...or invoke the functionality via [GUI in KiCAD](https://yaqwsx.github.io/KiKit/latest/panelization/gui/).
@@ -84,6 +84,13 @@ documentation](doc/panelization.md). Also don't miss the
 [examples](https://yaqwsx.github.io/KiKit/examples/panelization/examples/). There is also a quick not on how to use
 [panelization action plugin](https://yaqwsx.github.io/KiKit/latest/panelization/gui/). If you are interested in
 generating solder paste stencils, see [Stencil documentation](https://yaqwsx.github.io/KiKit/latest/stencil/)
+
+## Acknowledgements
+
+The project is supported by:
+
+- [My GitHub sponsors](https://github.com/sponsors/yaqwsx) and
+- [<img src="https://nlnet.nl/logo/banner.svg" width="150"/>](https://nlnet.nl/project/KiKit/#ack)
 
 ## KiKit Is Broken or Does Not Work as Expected
 

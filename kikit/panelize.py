@@ -19,6 +19,8 @@ from itertools import product, chain
 import numpy as np
 import os
 import json
+import re
+import fnmatch
 from collections import OrderedDict
 
 from kikit import substrate
@@ -27,7 +29,7 @@ from kikit.kicadUtil import getPageDimensionsFromAst
 from kikit.substrate import Substrate, linestringToKicad, extractRings
 from kikit.defs import PAPER_DIMENSIONS, STROKE_T, Layer, EDA_TEXT_HJUSTIFY_T, EDA_TEXT_VJUSTIFY_T, PAPER_SIZES
 from kikit.common import *
-from kikit.sexpr import parseSexprF, SExpr, Atom, findNode
+from kikit.sexpr import isElement, parseSexprF, SExpr, Atom, findNode, parseSexprListF
 from kikit.annotations import AnnotationReader, TabAnnotation
 from kikit.drc import DrcExclusion, readBoardDrcExclusions, serializeExclusion
 from kikit.units import mm, deg
@@ -134,8 +136,8 @@ class NetClass():
     Internal representation of a netclass. Work-around for KiCAD 6.0.6 missing
     support for netclasses in API
     """
-    def __init__(self, settings: Any) -> None:
-        self.data = settings
+    def __init__(self, netClassDef: Any) -> None:
+        self.data = netClassDef
         self.nets: Set[str] = set()
 
     @property
@@ -151,7 +153,8 @@ class NetClass():
 
     def serialize(self) -> Any:
         data = deepcopy(self.data)
-        data["nets"] = list(self.nets)
+        if isV6():
+            data["nets"] = list(self.nets)
         return data
 
 def getOriginCoord(origin, bBox):
@@ -464,6 +467,7 @@ class Panel:
         self.vCutLayer = Layer.Cmts_User
         self.vCutClearance = 0
         self.copperLayerCount = None
+        self.renderedMousebiteCounter = 0
         self.zonesToRefill = pcbnew.ZONES()
         self.pageSize: Union[None, str, Tuple[int, int]] = None
 
@@ -472,6 +476,8 @@ class Panel:
         # At the moment (KiCAD 6.0.6) has broken support for net classes.
         # Therefore we have to handle them separately
         self.newNetClasses: Dict[str, Any] = {}
+        self.netCLassPatterns: List[Dict[str, str]] = []
+        self.customDRCRules: List[SExpr] = []
 
         # KiCAD allows to keep text variables for project. We keep a set of
         # dictionary of variables for each appended board.
@@ -517,6 +523,7 @@ class Panel:
 
         self.makeLayersVisible() # as they are not in KiCAD 6
         self.transferProjectSettings()
+        self.writeCustomDrcRules()
 
         # Remove cuts
         for cut, _ in vcuts:
@@ -586,13 +593,20 @@ class Panel:
             p = path
         return os.path.splitext(p)[0]+'.kicad_prl'
 
+    def getDruFilepath(self, path=None):
+        if path == None:
+            p = self.filename
+        else:
+            p = path
+        return os.path.splitext(p)[0]+'.kicad_dru'
+
     def makeLayersVisible(self):
         """
         Modify corresponding *.prl files so all the layers are visible by
         default
         """
         try:
-            with open(self.getPrlFilepath()) as f:
+            with open(self.getPrlFilepath(), encoding="utf-8") as f:
                 # We use ordered dict, so we preserve the ordering of the keys and
                 # thus, formatting
                 prl = json.load(f, object_pairs_hook=OrderedDict)
@@ -602,6 +616,12 @@ class Panel:
         except IOError:
             # The PRL file is not always created, ignore it
             pass
+
+    def writeCustomDrcRules(self):
+        with open(self.getDruFilepath(), "w", encoding="utf-8") as f:
+            f.write("(version 1)\n\n")
+            for r in self.customDRCRules:
+                f.write(str(r))
 
     def transferProjectSettings(self):
         """
@@ -619,22 +639,25 @@ class Panel:
 
         sPath = list(self.sourcePaths)[0]
         try:
-            with open(self.getProFilepath(sPath)) as f:
+            with open(self.getProFilepath(sPath), encoding="utf-8") as f:
                 sourcePro = json.load(f)
         except (IOError, FileNotFoundError):
             # This means there is no original project file. Probably comes from
             # v5, thus there is nothing to transfer
             return
         try:
-            with open(self.getProFilepath()) as f:
+            with open(self.getProFilepath(), encoding="utf-8") as f:
                 currentPro = json.load(f, object_pairs_hook=OrderedDict)
             currentPro["board"]["design_settings"] = sourcePro["board"]["design_settings"]
             currentPro["board"]["design_settings"]["drc_exclusions"] = [
                 serializeExclusion(e) for e in self.drcExclusions]
+            currentPro["board"]["design_settings"]["rule_severities"] = sourcePro["board"]["design_settings"]["rule_severities"]
             currentPro["text_variables"] = sourcePro.get("text_variables", {})
 
             currentPro["net_settings"]["classes"] = sourcePro["net_settings"]["classes"]
             currentPro["net_settings"]["classes"] += [x.serialize() for x in self.newNetClasses.values()]
+            currentPro["net_settings"]["netclass_patterns"] = self.netCLassPatterns
+
             with open(self.getProFilepath(), "w", encoding="utf-8") as f:
                 json.dump(currentPro, f, indent=2)
         except (KeyError, FileNotFoundError):
@@ -642,33 +665,119 @@ class Panel:
             # without attached project
             pass
 
+    def _assignNetToClasses(self, nets: Iterable[str], patterns: List[Tuple[str, str]])\
+            -> Dict[str, Set[str]]:
+        def safeCompile(p):
+            try:
+                return re.compile(p)
+            except Exception:
+                return None
+
+        regexes = [
+            (netclass, safeCompile(pattern)) for netclass, pattern in patterns
+        ]
+
+        assignment: Dict[str, Set[str]] = {
+            netclass: set() for netclass, _ in patterns
+        }
+
+        for net in nets:
+            for netclass, pattern in patterns:
+                if fnmatch.fnmatch(net, pattern):
+                    assignment[netclass].add(net)
+            for netclass, regex in regexes:
+                if regex is not None and regex.match(net):
+                    assignment[netclass].add(net)
+
+        return assignment
+
     def _inheritNetClasses(self, board, netRenamer):
         """
-        KiCAD 6.0.6 has broken API for net classes. Therefore, we have to load
-        and save the net classes manually in the project file
+        KiCADhas broken API for net classes. Therefore, we have to load and save
+        the net classes manually in the project file.
+
+        KiCAD 6 uses the approach of explicitly listing all nets, KiCAD 7 uses
+        patterns instead. The code below tries to cover both cases in a
+        non-conflicting way.
         """
         proFilename = os.path.splitext(board.GetFileName())[0]+'.kicad_pro'
         try:
-            with open(proFilename) as f:
+            with open(proFilename, encoding="utf-8") as f:
                 project = json.load(f)
         except FileNotFoundError:
             # If the source board doesn't contain project, there's nothing to
             # inherit.
             return
+
+        boardNetsNames = collectNetNames(board)
+        netClassPatterns = [
+            (p["netclass"], p["pattern"])
+            for p in project["net_settings"].get("netclass_patterns", [])
+        ]
+        netAssignment = self._assignNetToClasses(boardNetsNames, netClassPatterns)
+
         seenNets = set()
         for c in project["net_settings"]["classes"]:
+            origName = c["name"]
             c["name"] = netRenamer(c["name"])
             nc = NetClass(c)
-            for net in nc.originalNets:
+            for net in chain(nc.originalNets, netAssignment.get(origName, [])):
                 seenNets.add(net)
                 nc.addNet(netRenamer(net))
             self.newNetClasses[nc.name] = nc
+
         defaultNetClass = self.newNetClasses[netRenamer("Default")]
-        for name in collectNetNames(board):
+        for name in boardNetsNames:
             if name in seenNets:
                 continue
             defaultNetClass.addNet(netRenamer(name))
 
+        for net in defaultNetClass.nets:
+            self.netCLassPatterns.append({
+                "netclass": defaultNetClass.name,
+                "pattern": net
+            })
+        for netclass, pattern in netClassPatterns:
+            self.netCLassPatterns.append({
+                "netclass": netRenamer(netclass),
+                "pattern": netRenamer(pattern)
+            })
+
+    def _inheriCustomDrcRules(self, board, netRenamer):
+        """
+        KiCADhas has no API for custom DRC rules, so we read the source files
+        instead.
+
+        The inheritance works as follows:
+        - we rename each rule via net renamer
+        - if the rule contains condition, we identify boolean operations equals
+          and not equals for net names and net classes and rename the nets
+        """
+        proFilename = os.path.splitext(board.GetFileName())[0]+'.kicad_dru'
+        try:
+            with open(proFilename, encoding="utf-8") as f:
+                rules = parseSexprListF(f)
+        except FileNotFoundError:
+            # If the source board doesn't contain DRU files, there's nothing to
+            # inherit.
+            return
+
+        conditionRegex = re.compile(r"((A|B)\.Net(Class|Name)\s*?(==|!=)\s*?)'(.*?)'")
+
+        for rule in rules:
+            if isElement("version")(rule):
+                continue
+            elif isElement("rule")(rule):
+                # Rename rule
+                rule.items[1].value = netRenamer(rule.items[1].value)
+                for clause in rule.items[2:]:
+                    if isElement("condition")(clause):
+                        # Rename net classes and names in the condition
+                        clause.items[1].value = conditionRegex.sub(
+                            lambda m: f"{m.group(1)}'{netRenamer(m.group(5))}'", clause.items[1].value)
+                self.customDRCRules.append(rule)
+            else:
+                raise RuntimeError(f"Unkwnown custom DRC rule {rule}")
 
     def _adjustPageSize(self) -> None:
         """
@@ -873,6 +982,7 @@ class Panel:
         netRenamerFn = lambda x: netRenamer(bId, x)
 
         self._inheritNetClasses(board, netRenamerFn)
+        self._inheriCustomDrcRules(board, netRenamerFn)
 
         renameNets(board, netRenamerFn)
         if refRenamer is not None:
@@ -881,7 +991,7 @@ class Panel:
         drawings = collectItems(board.GetDrawings(), enlargedSourceArea)
         footprints = collectFootprints(board.GetFootprints(), enlargedSourceArea)
         tracks = collectItems(board.GetTracks(), enlargedSourceArea)
-        zones = collectItems(board.Zones(), enlargedSourceArea)
+        zones = collectZones(board.Zones(), enlargedSourceArea)
 
         itemMapping: Dict[str, str] = {} # string KIID to string KIID
         def yieldMapping(old: str, new: str) -> None:
@@ -1338,7 +1448,7 @@ class Panel:
         for cut in cuts:
             if len(cut.simplify(SHP_EPSILON).coords) > 2 and not boundCurves:
                 raise RuntimeError("Cannot V-Cut a curve")
-            cut = cut.parallel_offset(offset, "left")
+            cut = cut.simplify(1).parallel_offset(offset, "left")
             start = roundPoint(cut.coords[0])
             end = roundPoint(cut.coords[-1])
             if start.x == end.x or (abs(start.x - end.x) <= fromMm(0.5) and boundCurves):
@@ -1363,6 +1473,7 @@ class Panel:
             offsetCuts.append(offsetCut)
 
         for cut in listGeometries(shapely.ops.unary_union(offsetCuts).simplify(SHP_EPSILON)):
+            self.renderedMousebiteCounter += 1
             length = cut.length
             count = int(length / spacing) + 1
             for i in range(count):
@@ -1371,7 +1482,8 @@ class Panel:
                 else:
                     hole = cut.interpolate( i * length / (count - 1) )
                 if bloatedSubstrate.intersects(hole):
-                    self.addNPTHole(toKiCADPoint((hole.x, hole.y)), diameter)
+                    self.addNPTHole(toKiCADPoint((hole.x, hole.y)), diameter,
+                                    ref=f"KiKit_MB_{self.renderedMousebiteCounter}_{i+1}")
 
     def makeCutsToLayer(self, cuts, layer=Layer.Cmts_User, prolongation=fromMm(0)):
         """
@@ -1393,7 +1505,8 @@ class Panel:
                 segment.SetWidth(fromMm(0.3))
                 self.board.Add(segment)
 
-    def addNPTHole(self, position: VECTOR2I, diameter: KiLength, paste: bool=False) -> None:
+    def addNPTHole(self, position: VECTOR2I, diameter: KiLength,
+                   paste: bool=False, ref: Optional[str]=None) -> None:
         """
         Add a drilled non-plated hole to the position (`VECTOR2I`) with given
         diameter. The paste option allows to place the hole on the paste layers.
@@ -1408,11 +1521,13 @@ class Panel:
                 layerSet.AddLayer(Layer.F_Paste)
                 layerSet.AddLayer(Layer.B_Paste)
                 pad.SetLayerSet(layerSet)
+        if ref is not None:
+            footprint.SetReference(ref)
         self.board.Add(footprint)
 
     def addFiducial(self, position: VECTOR2I, copperDiameter: KiLength,
                     openingDiameter: KiLength, bottom: bool = False,
-                    paste: bool = False) -> None:
+                    paste: bool = False, ref: Optional[str] = None) -> None:
         """
         Add fiducial, i.e round copper pad with solder mask opening to the
         position (`VECTOR2I`), with given copperDiameter and openingDiameter. By
@@ -1426,6 +1541,8 @@ class Panel:
         # and KiCAD crashes.
         self.board.Add(footprint)
         footprint.SetPosition(position)
+        if ref is not None:
+            footprint.SetReference(ref)
         for pad in footprint.Pads():
             pad.SetSize(toKiCADPoint((copperDiameter, copperDiameter)))
             pad.SetLocalSolderMaskMargin(int((openingDiameter - copperDiameter) / 2))
@@ -1460,9 +1577,11 @@ class Panel:
 
         The offsets are measured from the outer edges of the substrate.
         """
-        for pos in self.panelCorners(horizontalOffset, verticalOffset)[:fidCount]:
-            self.addFiducial(pos, copperDiameter, openingDiameter, False, paste)
-            self.addFiducial(pos, copperDiameter, openingDiameter, True, paste)
+        for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:fidCount]):
+            self.addFiducial(pos, copperDiameter, openingDiameter, False,
+                             paste, ref = f"KiKit_FID_T_{i+1}")
+            self.addFiducial(pos, copperDiameter, openingDiameter, True,
+                             paste, ref = f"KiKit_FID_B_{i+1}")
 
     def addCornerTooling(self, holeCount, horizontalOffset, verticalOffset,
                          diameter, paste=False):
@@ -1473,8 +1592,8 @@ class Panel:
 
         The offsets are measured from the outer edges of the substrate.
         """
-        for pos in self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]:
-            self.addNPTHole(pos, diameter, paste)
+        for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
+            self.addNPTHole(pos, diameter, paste, ref=f"KiKit_TO_{i+1}")
 
     def addMillFillets(self, millRadius):
         """

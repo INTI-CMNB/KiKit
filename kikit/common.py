@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sys
 from typing import List, Optional, Tuple, Union, Callable
 from kikit.defs import Layer
 from kikit.typing import Box
@@ -86,6 +87,19 @@ def collectFootprints(boardCollection, sourceArea):
     Returns a list of board footprints Which origin fits inside the source area.
     """
     return list([x for x in boardCollection if fitsIn(x.GetPosition(), sourceArea)])
+
+def collectZones(boardCollection, sourceArea):
+    """
+    Returns a list of board zones which centroid fits inside the source area.
+    """
+    def zoneCentroid(zone: pcbnew.ZONE) -> pcbnew.VECTOR2I:
+        items = []
+        for outline in [zone.Outline().Outline(i) for i in range(zone.Outline().OutlineCount())]:
+            p = shapely.geometry.Polygon([outline.CPoint(i) for i in range(outline.PointCount())])
+            items.append(p)
+        polygon = shapely.ops.unary_union(items)
+        return pcbnew.VECTOR2I(*[int(x) for x in polygon.centroid.coords[0]])
+    return list([x for x in boardCollection if fitsIn(zoneCentroid(x), sourceArea)])
 
 def getBBoxWithoutContours(edge):
     width = edge.GetWidth()
@@ -357,6 +371,20 @@ def fakeKiCADGui():
     if os.name != "nt" and os.environ.get("DISPLAY", "").strip() == "":
         return None
 
-    app = wx.App()
-    app.InitLocale()
-    return app
+    # Originally, we created wx App and initiated the locale. However, the only
+    # purpose of this was to supress the warnings from KiCAD. It seems that the
+    # existence of partially initiated app breaks some functions (e.g., the
+    # Excellon writer). Therefore, instead of initiating the app, as shown
+    # below, we simply redirect stdout/stderr to /dev/null and allow only for
+    # output via sys.stdout and sys.stderr.
+    # app = wx.App()
+    # app.InitLocale()
+    # return app
+
+    sys.stdout = os.fdopen(os.dup(1), "w")
+    sys.stderr = os.fdopen(os.dup(2), "w")
+
+    os.dup2(os.open(os.devnull,os.O_RDWR), 1)
+    os.dup2(os.open(os.devnull,os.O_RDWR), 2)
+
+    return None

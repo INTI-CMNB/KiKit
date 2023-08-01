@@ -1,3 +1,5 @@
+import traceback
+import sys
 import click
 
 def fabCommand(f):
@@ -20,10 +22,12 @@ def execute(fab, kwargs):
     debug = kwargs["debug"]
     del kwargs["debug"]
 
+    if debug:
+        traceback.print_exc(file=sys.stderr)
+
     try:
         return fab(**kwargs)
     except Exception as e:
-        import sys
         sys.stderr.write(f"An error occurred: {e}\n")
         sys.stderr.write("No output files produced\n")
         if debug:
