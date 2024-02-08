@@ -58,8 +58,8 @@ setuptools.setup(
     ],
     install_requires=[
         "numpy",
-        "pcbnewTransition >= 0.3.4, <=0.4",
-        "shapely>=1.7,<2.0",
+        "pcbnewTransition >= 0.4, <=0.5",
+        "shapely>=1.7",
         "click>=7.1",
         "markdown2>=2.3",
         "pybars3>=0.9",

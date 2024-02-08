@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        kicad-version: [v6, v7, v7-testing]
+        kicad-version: [v6, v7, v7-testing, nightly]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-kicad
         with:
           kicad-version: ${{ matrix.kicad-version }}
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-20.04
     needs: test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-kicad
         with:
           kicad-version: v6
@@ -89,7 +89,7 @@ jobs:
             additional_packages: gcc-aarch64-linux-gnu libgeos-dev
             additional_python_packages: python3-dev
     steps:
-      - uses: actions/checkout@v3 # Required for kikit version estimation
+      - uses: actions/checkout@v4 # Required for kikit version estimation
         with:
           fetch-depth: 0 # = fetch all
       - name: Set up QEMU

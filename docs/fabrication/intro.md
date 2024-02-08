@@ -22,8 +22,10 @@ All commands also support the following options:
 - `--nametemplate <str>`:  If you want to name your files differently, specify
   this option. This option takes a string that should contain `{}`. This string
   will be replaced by `gerber`, `pos` or `bom` in the out file names. The
-  extension is appended automatically. [Variables in text](../panelization/cli.md#available-variables-in-text)
-  are also supported eg: `{boardTitle}_rev{boardRevision}_{date}_{}`.
+  extension is appended automatically. [Variables in
+  text](../panelization/cli.md#available-variables-in-text) are also supported
+  eg: `{boardTitle}_rev{boardRevision}_{date}_{}`. The project variables are
+  available with the `user-` prefix; e.g., `MFR: {user-mfr}```
 
 Each of the fab command also take additional, manufacturer specific, options.
 See documentation for the individual manufacturer below:
@@ -36,6 +38,7 @@ Note: click on the name of the manufacturer to see corresponding documentation:
 - [PCBWay](pcbway.md): board manufacturing, assembly. [https://www.pcbway.com/](https://www.pcbway.com/)
 - [OSH Park](oshpark.md): board manufacturing. [https://oshpark.com/](https://oshpark.com/)
 - [Neoden YY1](neodenyy1.md): desktop PCB assembly. [https://neodenusa.com/neoden-yy1-pick-place-machine](https://neodenusa.com/neoden-yy1-pick-place-machine)
+- [OpenPNP](openpn.md): Open system for pick'n'place machines. [https://openpnp.org/](https://openpnp.org/)
 
 ## Adding New Fabrication Houses
 

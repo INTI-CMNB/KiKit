@@ -2,7 +2,8 @@ import csv
 from dataclasses import dataclass
 import re
 from typing import OrderedDict
-from pcbnewTransition import pcbnew, isV6, isV7
+from kikit.project import KiCADProject
+from pcbnewTransition import pcbnew, isV6, isV7, isV8
 from math import sin, cos, radians
 from kikit.common import *
 from kikit.defs import MODULE_ATTR_T
@@ -12,7 +13,7 @@ from kikit import eeschema, eeschema_v6
 from kikit.text import kikitTextVars
 import sys
 
-if isV6() or isV7():
+if isV6() or isV7() or isV8():
     from kikit import eeschema_v6 # import getField, getUnit, getReference
 from kikit import eeschema #import getField, getUnit, getReference
 
@@ -88,10 +89,14 @@ def footprintOrientation(footprint, compensation):
     return (footprint.GetOrientation().AsDegrees() + compensation[2]) % 360
 
 def parseCompensation(compensation):
-    comps = [float(x) for x in compensation.split(";")]
-    if len(comps) != 3:
-        raise FormatError(f"Invalid format of compensation '{compensation}'")
-    return comps
+    compParts = compensation.split(";")
+    if len(compParts) != 3:
+        raise FormatError(f"Invalid format of compensation '{compensation}' – there should be 3 parts, got {len(compParts)}")
+    try:
+        comps = [float(x) for x in compParts]
+        return comps
+    except Exception:
+        raise FormatError(f"Invalid format of compensation '{compensation}' – items are not numbers") from None
 
 def defaultFootprintX(footprint, placeOffset, compensation):
     # Overwrite when footprint requires mirrored X when components are on the bottom side
@@ -228,12 +233,12 @@ def ensureValidBoard(filename):
 def expandNameTemplate(template: str, filetype: str, board: pcbnew.BOARD) -> str:
     if re.findall(r"\{.*\}", template) == []:
         raise RuntimeError(f"The filename template '{template} must contain at least one variable name")
-    textVars = kikitTextVars(board)
+    textVars = kikitTextVars(board, KiCADProject(board.GetFileName()).textVars)
     try:
         return template.format(filetype, **textVars)
     except KeyError as e:
         raise RuntimeError(f"Unknown variable {e} in --nametemplate: {template}")
 
 def naturalComponentKey(reference: str) -> Tuple[str, int]:
-    text, num = splitOn(reference, lambda x: not x.isdigit())
+    text, num = splitOnReverse(reference, lambda x: x.isdigit())
     return str(text), int(num)

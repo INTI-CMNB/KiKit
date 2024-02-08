@@ -3,7 +3,7 @@ import sys
 from typing import List, Optional, Tuple, Union, Callable
 from kikit.defs import Layer
 from kikit.typing import Box
-from pcbnewTransition import pcbnew, isV7
+from pcbnewTransition import pcbnew, isV7, isV8
 from kikit.intervals import AxialLine
 from pcbnewTransition.pcbnew import BOX2I, VECTOR2I, EDA_ANGLE
 import os
@@ -43,7 +43,7 @@ def fitsIn(what: Union[BOX2I, VECTOR2I], where: BOX2I) -> bool:
     Return true iff 'what' (BOX2I or VECTOR2I) is fully contained in 'where'
     (BOX2I)
     """
-    if isV7():
+    if isV7() or isV8():
         assert isinstance(what, (BOX2I, VECTOR2I, pcbnew.wxPoint))
     else:
         assert isinstance(what, (BOX2I, VECTOR2I, pcbnew.wxPoint, pcbnew.EDA_RECT))
@@ -325,6 +325,14 @@ def splitOn(input: str, predicate: Callable[[str], bool]) \
             break
     return left, input[i:]
 
+def splitOnReverse(input: str, predicate: Callable[[str], bool]) \
+        -> Tuple[str, str]:
+    """
+    Split a string into a tail fullfilling predicate and the remaning head
+    """
+    tail, head = splitOn(input[::-1], predicate)
+    return head[::-1], tail[::-1]
+
 def indexOf(list, predicate):
     """
     Return the index of the first element that satisfies predicate. If no
@@ -367,6 +375,9 @@ def fakeKiCADGui():
     """
     import wx
     import os
+
+    if hasattr(wx, "DisableAsserts"):
+        wx.DisableAsserts()
 
     if os.name != "nt" and os.environ.get("DISPLAY", "").strip() == "":
         return None

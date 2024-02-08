@@ -31,6 +31,16 @@ class SLength(SectionBase):
     def validate(self, x):
         return readLength(x)
 
+class SPercent(SectionBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def validate(self, x):
+        x = x.strip()
+        if not x.endswith("%"):
+            raise PresetError("Percentage error has to end with %")
+        return readPercents(x)
+
 class SLengthOrPercent(SectionBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -156,7 +166,7 @@ class SHJustify(SChoiceBase):
             return choices[s]
         raise PresetError(f"'{s}' is not valid justification value")
 
-class SHVJustify(SChoiceBase):
+class SVJustify(SChoiceBase):
     def __init__(self, *args, **kwargs):
         super().__init__(["top", "bottom", "center"], *args, **kwargs)
 
@@ -177,12 +187,15 @@ class SLayer(SChoiceBase):
                 for item in Layer], *args, **kwargs)
 
     def validate(self, s):
-        if isinstance(s, int):
-            if s in tuple(item.value for item in Layer):
-                return Layer(s)
+        if isinstance(s, int) or s.isdigit():
+            if int(s) in tuple(item.value for item in Layer):
+                return Layer(int(s))
             raise PresetError(f"{s} is not a valid layer number")
         if isinstance(s, str):
-            return Layer[s.replace(".", "_")]
+            try:
+                return Layer[s.replace(".", "_")]
+            except Exception:
+                pass
         raise PresetError(f"Got {s}, expected layer name or number")
 
 class SList(SectionBase):
@@ -200,12 +213,15 @@ class SLayerList(SList):
         return [self.readLayer(x) for x in super().validate(x)]
 
     def readLayer(self, s: str) -> Layer:
-        if isinstance(s, int):
-            if s in tuple(item.value for item in Layer):
-                return Layer(s)
+        if isinstance(s, int) or s.isdigit():
+            if int(s) in tuple(item.value for item in Layer):
+                return Layer(int(s))
             raise PresetError(f"{s} is not a valid layer number")
         if isinstance(s, str):
-            return Layer[s.replace(".", "_")]
+            try:
+                return Layer[s.replace(".", "_")]
+            except Exception:
+                pass
         raise PresetError(f"Got {s}, expected layer name or number")
 
 class SFootprintList(SList):
@@ -591,7 +607,7 @@ TEXT_SECTION = {
     "hjustify": SHJustify(
         typeIn(["simple"]),
         "Text alignment"),
-    "vjustify": SHJustify(
+    "vjustify": SVJustify(
         typeIn(["simple"]),
         "Text alignment"),
     "layer": SLayer(
@@ -618,14 +634,17 @@ def ppText(section):
 
 COPPERFILL_SECTION = {
     "type": SChoice(
-        ["none", "solid", "hatched"],
+        ["none", "solid", "hatched", "hex"],
         always(),
         "Fill non board areas with copper"),
     "clearance": SLength(
-        typeIn(["solid", "hatched"]),
+        typeIn(["solid", "hatched", "hex"]),
+        "Clearance between the fill and boards"),
+    "edgeclearance": SLength(
+        typeIn(["solid", "hatched", "hex"]),
         "Clearance between the fill and boards"),
     "layers": SLayerList(
-        typeIn(["solid", "hatched"]),
+        typeIn(["solid", "hatched", "hex"]),
         "Specify which layer to fill with copper",
         {
             "all": Layer.allCu()
@@ -634,11 +653,18 @@ COPPERFILL_SECTION = {
         typeIn(["hatched"]),
         "Width of hatch strokes"),
     "spacing": SLength(
-        typeIn(["hatched"]),
-        "Spacing of hatch strokes"),
+        typeIn(["hatched", "hex"]),
+        "Spacing of hatch strokes or hexagons"),
     "orientation": SAngle(
         typeIn(["hatched"]),
-        "Orientation of the strokes"
+        "Orientation of the strokes"),
+    "diameter": SLength(
+        typeIn(["hex"]),
+        "Diameter of hexagons"
+    ),
+    "threshold": SPercent(
+        typeIn(["hex"]),
+        "Remove fragments smaller than threshold"
     )
 }
 

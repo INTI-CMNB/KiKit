@@ -33,6 +33,7 @@ from kikit.sexpr import isElement, parseSexprF, SExpr, Atom, findNode, parseSexp
 from kikit.annotations import AnnotationReader, TabAnnotation
 from kikit.drc import DrcExclusion, readBoardDrcExclusions, serializeExclusion
 from kikit.units import mm, deg
+from kikit.pcbnew_utils import increaseZonePriorities
 
 class PanelError(RuntimeError):
     pass
@@ -338,10 +339,6 @@ def isBoardEdge(edge):
     """
     return isinstance(edge, pcbnew.PCB_SHAPE) and edge.GetLayerName() == "Edge.Cuts"
 
-def increaseZonePriorities(board, amount=1):
-    for zone in board.Zones():
-        zone.SetAssignedPriority(zone.GetAssignedPriority() + amount)
-
 def tabSpacing(width, count):
     """
     Given a width of board edge and tab count, return an iterable with tab
@@ -436,7 +433,10 @@ def bakeTextVars(board: pcbnew.BOARD) -> None:
     for drawing in board.GetDrawings():
         if not isinstance(drawing, pcbnew.PCB_TEXT):
             continue
-        drawing.SetText(drawing.GetShownText())
+        if isV8():
+            drawing.SetText(drawing.GetShownText(True))
+        else:
+            drawing.SetText(drawing.GetShownText())
 
 class Panel:
     """
@@ -1006,7 +1006,7 @@ class Panel:
             # the attribute must be first removed without changing the
             # orientation of the text.
             for item in (*footprint.GraphicalItems(), footprint.Value(), footprint.Reference()):
-                if isinstance(item, pcbnew.FP_TEXT) and item.IsKeepUpright():
+                if isinstance(item, pcbnew.FIELD_TYPE) and item.IsKeepUpright():
                     actualOrientation = item.GetDrawRotation()
                     item.SetKeepUpright(False)
                     item.SetTextAngle(actualOrientation - footprint.GetOrientation())
@@ -1447,7 +1447,12 @@ class Panel:
         """
         for cut in cuts:
             if len(cut.simplify(SHP_EPSILON).coords) > 2 and not boundCurves:
-                raise RuntimeError("Cannot V-Cut a curve")
+                message = "Cannot V-Cut a curve or a line that is either not horizontal or vertical.\n"
+                message += "Possible cause might be:\n"
+                message += "- your tabs hit a curved boundary of your PCB,\n"
+                message += "- your vertical or horizontal PCB edges are not precisely vertical or horizontal.\n"
+                message += "Modify the design or accept curve approximation via V-cuts."
+                raise RuntimeError(message)
             cut = cut.simplify(1).parallel_offset(offset, "left")
             start = roundPoint(cut.coords[0])
             end = roundPoint(cut.coords[-1])
@@ -1483,7 +1488,8 @@ class Panel:
                     hole = cut.interpolate( i * length / (count - 1) )
                 if bloatedSubstrate.intersects(hole):
                     self.addNPTHole(toKiCADPoint((hole.x, hole.y)), diameter,
-                                    ref=f"KiKit_MB_{self.renderedMousebiteCounter}_{i+1}")
+                                    ref=f"KiKit_MB_{self.renderedMousebiteCounter}_{i+1}",
+                                    excludedFromPos=True)
 
     def makeCutsToLayer(self, cuts, layer=Layer.Cmts_User, prolongation=fromMm(0)):
         """
@@ -1506,7 +1512,8 @@ class Panel:
                 self.board.Add(segment)
 
     def addNPTHole(self, position: VECTOR2I, diameter: KiLength,
-                   paste: bool=False, ref: Optional[str]=None) -> None:
+                   paste: bool=False, ref: Optional[str]=None,
+                   excludedFromPos: bool=False) -> None:
         """
         Add a drilled non-plated hole to the position (`VECTOR2I`) with given
         diameter. The paste option allows to place the hole on the paste layers.
@@ -1523,6 +1530,10 @@ class Panel:
                 pad.SetLayerSet(layerSet)
         if ref is not None:
             footprint.SetReference(ref)
+        if hasattr(footprint, "SetExcludedFromPosFiles"): # KiCAD 6 doesn't support this attribute
+            footprint.SetExcludedFromPosFiles(excludedFromPos)
+        if hasattr(footprint, "SetBoardOnly"):
+            footprint.SetBoardOnly(True)
         self.board.Add(footprint)
 
     def addFiducial(self, position: VECTOR2I, copperDiameter: KiLength,
@@ -1593,7 +1604,7 @@ class Panel:
         The offsets are measured from the outer edges of the substrate.
         """
         for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
-            self.addNPTHole(pos, diameter, paste, ref=f"KiKit_TO_{i+1}")
+            self.addNPTHole(pos, diameter, paste, ref=f"KiKit_TO_{i+1}", excludedFromPos=False)
 
     def addMillFillets(self, millRadius):
         """
@@ -1807,6 +1818,10 @@ class Panel:
 
         return cuts
 
+    def inheritLayerNames(self, board):
+        for layer in pcbnew.LSET.AllLayersMask().Seq():
+            name = board.GetLayerName(layer)
+            self.board.SetLayerName(layer, name)
 
     def inheritCopperLayers(self, board):
         """
@@ -1832,6 +1847,8 @@ class Panel:
             strokeWidth: KiLength=fromMm(1), strokeSpacing: KiLength=fromMm(1),
             orientation: KiAngle=fromDegrees(45)) -> None:
         """
+        This function is deprecated, please, use panel features instead.
+
         Fill given layers with copper on unused areas of the panel (frame, rails
         and tabs). You can specify the clearance, if it should be hatched
         (default is solid) or shape the strokes of hatched pattern.
@@ -2220,6 +2237,12 @@ class Panel:
         if self.filletSize is not None:
             vDim.SetExtensionOffset(-self.filletSize)
         self.board.Add(vDim)
+
+    def apply(self, feature: Any) -> None:
+        """
+        Apply given feature to the panel
+        """
+        feature.apply(self)
 
 
 def getFootprintByReference(board, reference):
