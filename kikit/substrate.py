@@ -33,7 +33,7 @@ class NoIntersectionError(RuntimeError):
 class TabFilletError(RuntimeError):
     pass
 
-def roundPoint(point, precision=-4):
+def roundPoint(point, precision=-2):
     return (round(point[0], precision), round(point[1], precision))
 
 def getStartPoint(geom):
@@ -554,7 +554,8 @@ class Substrate:
                 # Yield a line
                 a = coords[i]
                 b = coords[(i + 1) % len(coords)]
-                segments.append(self._constructEdgeSegment(a, b))
+                if a != b:
+                    segments.append(self._constructEdgeSegment(a, b))
                 i += 1
         return segments
 

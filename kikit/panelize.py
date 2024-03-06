@@ -1461,7 +1461,13 @@ class Panel:
             elif start.y == end.y or (abs(start.y - end.y) <= fromMm(0.5) and boundCurves):
                 self.addVCutH((start.y + end.y) / 2)
             else:
-                raise RuntimeError("Cannot perform V-Cut which is not horizontal or vertical")
+                description = f"[{toMm(start.x)}, {toMm(start.y)}] -> [{toMm(end.x)}, {toMm(end.y)}]"
+                message = f"Cannot perform V-Cut which is not horizontal or vertical ({description}).\n"
+                message += "Possible cause might be:\n"
+                message += "- check that intended edges are truly horizonal or vertical\n"
+                message += "- check your tab placement if it as expected\n"
+                message += "You can use layer style of cuts to see them and validate them."
+                raise RuntimeError(message)
 
     def makeMouseBites(self, cuts, diameter, spacing, offset=fromMm(0.25),
         prolongation=fromMm(0.5)):
@@ -1513,7 +1519,9 @@ class Panel:
 
     def addNPTHole(self, position: VECTOR2I, diameter: KiLength,
                    paste: bool=False, ref: Optional[str]=None,
-                   excludedFromPos: bool=False) -> None:
+                   excludedFromPos: bool=False,
+                   solderMaskMargin: Optional[KiLength] = None,
+    ) -> None:
         """
         Add a drilled non-plated hole to the position (`VECTOR2I`) with given
         diameter. The paste option allows to place the hole on the paste layers.
@@ -1523,6 +1531,8 @@ class Panel:
         for pad in footprint.Pads():
             pad.SetDrillSize(toKiCADPoint((diameter, diameter)))
             pad.SetSize(toKiCADPoint((diameter, diameter)))
+            if solderMaskMargin is not None:
+                footprint.SetLocalSolderMaskMargin(solderMaskMargin)
             if paste:
                 layerSet = pad.GetLayerSet()
                 layerSet.AddLayer(Layer.F_Paste)
@@ -1595,16 +1605,19 @@ class Panel:
                              paste, ref = f"KiKit_FID_B_{i+1}")
 
     def addCornerTooling(self, holeCount, horizontalOffset, verticalOffset,
-                         diameter, paste=False):
+                         diameter, paste=False, solderMaskMargin: Optional[KiLength]=None):
         """
         Add up to 4 tooling holes to the top-left, top-right, bottom-left and
         bottom-right corner of the board (in this order). This function expects
         there is enough space on the board/frame/rail to place the feature.
 
         The offsets are measured from the outer edges of the substrate.
+
+        Optionally, a solder mask margin (diameter) can also be specified.
         """
         for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
-            self.addNPTHole(pos, diameter, paste, ref=f"KiKit_TO_{i+1}", excludedFromPos=False)
+            self.addNPTHole(pos, diameter, paste, ref=f"KiKit_TO_{i+1}", excludedFromPos=False,
+                            solderMaskMargin=solderMaskMargin)
 
     def addMillFillets(self, millRadius):
         """

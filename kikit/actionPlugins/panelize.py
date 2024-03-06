@@ -1,7 +1,7 @@
 from sys import stderr
 from numpy.core.fromnumeric import std
 from numpy.lib.utils import source
-from pcbnewTransition import pcbnew, isV6
+from pcbnewTransition import pcbnew, isV8
 from kikit.panelize_ui_impl import loadPresetChain, obtainPreset, mergePresets
 from kikit import panelize_ui
 from kikit.panelize import appendItem
@@ -58,7 +58,8 @@ def transplateBoard(source, target):
         target.Remove(x)
 
     targetNetinfo = target.GetNetInfo()
-    targetNetinfo.RemoveUnusedNets()
+    if not isV8():
+        targetNetinfo.RemoveUnusedNets()
 
     for x in source.GetDrawings():
         appendItem(target, x)
@@ -68,8 +69,9 @@ def transplateBoard(source, target):
         appendItem(target, x)
     for x in source.Zones():
         appendItem(target, x)
-    for n in [n for _, n in source.GetNetInfo().NetsByNetcode().items()]:
-        targetNetinfo.AppendNet(n)
+    if not isV8():
+        for n in [n for _, n in source.GetNetInfo().NetsByNetcode().items()]:
+            targetNetinfo.AppendNet(n)
 
     d = target.GetDesignSettings()
     d.CloneFrom(source.GetDesignSettings())
@@ -77,7 +79,8 @@ def transplateBoard(source, target):
     target.SetProperties(source.GetProperties())
     target.SetPageSettings(source.GetPageSettings())
     target.SetTitleBlock(source.GetTitleBlock())
-    target.SetZoneSettings(source.GetZoneSettings())
+    if not isV8():
+        target.SetZoneSettings(source.GetZoneSettings())
 
 
 class SFile():
