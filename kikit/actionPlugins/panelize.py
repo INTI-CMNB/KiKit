@@ -4,7 +4,7 @@ from numpy.lib.utils import source
 from pcbnewTransition import pcbnew, isV8
 from kikit.panelize_ui_impl import loadPresetChain, obtainPreset, mergePresets
 from kikit import panelize_ui
-from kikit.panelize import appendItem
+from kikit.panelize import NonFatalErrors, appendItem
 from kikit.common import PKG_BASE
 from .common import initDialog, destroyDialog
 import kikit.panelize_ui_sections
@@ -57,9 +57,8 @@ def transplateBoard(source, target):
     for x in items:
         target.Remove(x)
 
-    targetNetinfo = target.GetNetInfo()
-    if not isV8():
-        targetNetinfo.RemoveUnusedNets()
+    for x in list(target.GetNetInfo().NetsByNetcode().values()):
+        target.Remove(x)
 
     for x in source.GetDrawings():
         appendItem(target, x)
@@ -69,9 +68,9 @@ def transplateBoard(source, target):
         appendItem(target, x)
     for x in source.Zones():
         appendItem(target, x)
-    if not isV8():
-        for n in [n for _, n in source.GetNetInfo().NetsByNetcode().items()]:
-            targetNetinfo.AppendNet(n)
+
+    for n in [n for _, n in source.GetNetInfo().NetsByNetcode().items()]:
+        target.Add(n)
 
     d = target.GetDesignSettings()
     d.CloneFrom(source.GetDesignSettings())
@@ -421,7 +420,7 @@ class PanelizeDialog(wx.Dialog):
                     thread.join(timeout=1)
                     if not thread.is_alive():
                         break
-                if thread.exception:
+                if thread.exception and not isinstance(thread.exception, NonFatalErrors):
                     raise thread.exception
                 # KiCAD 6 does something strange here, so we will load
                 # an empty file if we read it directly, but we can always make
@@ -437,6 +436,8 @@ class PanelizeDialog(wx.Dialog):
                 panel = pcbnew.LoadBoard(copyPanelName)
                 transplateBoard(panel, self.board)
                 self.dirty = True
+                if thread.exception:
+                    raise thread.exception
             except Exception as e:
                 dlg = wx.MessageDialog(
                     None, f"Cannot perform:\n\n{e}", "Error", wx.OK)
