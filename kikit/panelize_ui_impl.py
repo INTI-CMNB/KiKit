@@ -187,6 +187,8 @@ def readSourceArea(specification, board):
             return expandRect(findBoardBoundingBox(board), tolerance)
         if type == "annotation":
             ref = specification["ref"]
+            if ref.strip() == "":
+                raise PresetError("When using source 'annotation' reference cannot be empty.")
             return expandRect(extractSourceAreaByAnnotation(board, ref), tolerance)
         if type == "rectangle":
             tl = VECTOR2I(specification["tlx"], specification["tly"])
@@ -368,8 +370,14 @@ def makeCuts(properties, panel, cuts, ignoreOffset):
         if type == "vcuts":
             panel.makeVCuts(cuts, properties["cutcurves"], offset)
             panel.vCutSettings.layer = properties["layer"]
-            panel.vCutSettings.clerance = properties["clearance"]
-            panel.vCutSettings.lineThickness = properties["linewidth"]
+            panel.vCutSettings.clearance = properties["clearance"]
+            panel.vCutSettings.lineWidth = properties["linewidth"]
+            panel.vCutSettings.textThickness = properties["textthickness"]
+            panel.vCutSettings.textProlongation = properties["textprolongation"]
+            panel.vCutSettings.endProlongation = properties["endprolongation"]
+            panel.vCutSettings.textTemplate = properties["template"]
+            panel.vCutSettings.textOffset = properties["textoffset"]
+
         elif type == "mousebites":
             panel.makeMouseBites(cuts, properties["drill"],
                 properties["spacing"], offset, properties["prolong"])

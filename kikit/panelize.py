@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from kikit import substrate
 from kikit import units
 from kikit.kicadUtil import getPageDimensionsFromAst
-from kikit.substrate import Substrate, linestringToKicad, extractRings
+from kikit.substrate import Substrate, linestringToKicad, extractRings, TabError
 from kikit.defs import PAPER_DIMENSIONS, STROKE_T, Layer, EDA_TEXT_HJUSTIFY_T, EDA_TEXT_VJUSTIFY_T, PAPER_SIZES
 from kikit.common import *
 from kikit.sexpr import isElement, parseSexprF, SExpr, Atom, findNode, parseSexprListF
@@ -1620,7 +1620,6 @@ class Panel:
         # then we can change its properties. Otherwise, it misses parent pointer
         # and KiCAD crashes.
         self.board.Add(footprint)
-        footprint.SetPosition(position)
         if ref is not None:
             footprint.SetReference(ref)
         for pad in footprint.Pads():
@@ -1631,6 +1630,17 @@ class Panel:
                 layerSet = pad.GetLayerSet()
                 layerSet.AddLayer(Layer.F_Paste)
                 pad.SetLayerSet(layerSet)
+
+        for drawing in footprint.GraphicalItems():
+            if drawing.GetShape() != pcbnew.SHAPE_T_CIRCLE:
+                continue
+            if drawing.GetLayer() == Layer.F_Fab:
+                drawing.SetEnd(toKiCADPoint((openingDiameter / 2, 0)))
+            if drawing.GetLayer() == Layer.F_CrtYd:
+                drawing.SetEnd(toKiCADPoint((openingDiameter / 2 + fromMm(0.1), 0)))
+
+        footprint.SetPosition(position)
+
         if bottom:
             footprint.Flip(position, False)
 
@@ -2335,7 +2345,10 @@ def extractSourceAreaByAnnotation(board, reference):
     `kikit:Board`, extract the source area. The source area is a bounding box of
     continuous lines in the Edge.Cuts on which the arrow in reference point.
     """
-    annotation = getFootprintByReference(board, reference)
+    try:
+        annotation = getFootprintByReference(board, reference)
+    except Exception:
+        raise RuntimeError(f"Cannot extract board - boards is specified via footprint with reference '{reference}' which was not found")
     tip = annotation.GetPosition()
     edges = collectEdges(board, Layer.Edge_Cuts)
     # KiCAD 6 will need an adjustment - method Collide was introduced with

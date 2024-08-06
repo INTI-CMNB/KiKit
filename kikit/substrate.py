@@ -63,7 +63,7 @@ def getEndPoint(geom):
         # Rectangle is closed, so it starts at the same point as it ends
         point = geom.GetStart()
     else:
-        point = geom.GetEnd()
+        point = geom.GetStart() if geom.IsClosed() else geom.GetEnd()
     return point
 
 class CoincidenceList(list):
@@ -102,7 +102,7 @@ def isValidPcbShape(g):
     with zero length. Unfortunately, KiCAD does not discard such lines when
     saving. Therefore, we have to check it.
     """
-    return g.GetShape() != pcbnew.S_SEGMENT or g.GetLength() > 0
+    return g.GetShape() != pcbnew.S_SEGMENT or g.GetLength() >= fromMm(0.001)
 
 def extractRings(geometryList):
     """
@@ -210,6 +210,8 @@ def approximateBezier(bezier, endWith):
                      3 * t ** 2 * (1 - t) * bc2 + \
                      t ** 3 * end
             outline.append(vertex)
+    else:
+        outline += [start, end]
     outline.append(end)
 
     endWith = np.array(endWith)
@@ -347,8 +349,9 @@ def substratesFrom(polygons):
     return substrates
 
 class CircleFitCandidates:
-    def __init__(self, tolerance: int = fromMm(0.01)):
+    def __init__(self, tolerance: int = fromMm(0.005), radius_limit: int = fromMm(1000)):
         self.tolerance = tolerance
+        self.radius_limit = radius_limit
 
         self._xs = []
         self._xSum: float = 0
@@ -390,7 +393,7 @@ class CircleFitCandidates:
         else:
             toRevalidate = [(np.array([self._xs[-2], self._ys[-2]]), np.array([self._xs[-1], self._ys[-1]]))]
 
-        if self._doLinesFitCircle(toRevalidate, newCenter, newRadius):
+        if self._doLinesFitCircle(toRevalidate, newCenter, newRadius) and newRadius < self.radius_limit:
             self.foundCircle = newCenter, newRadius
             return True
 
@@ -703,7 +706,7 @@ class Substrate:
                     if not candidateCircle.addPoint(coords[j]):
                         break
 
-            if candidateCircle.foundCircle is not None:
+            if candidateCircle.foundCircle is not None and candidateCircle.foundCircle[1] > fromMm(0.25):
                 center, radius = candidateCircle.foundCircle
                 start, end, mid = candidateCircle.start, candidateCircle.end, candidateCircle.mid
 
@@ -831,8 +834,12 @@ class Substrate:
         """
         self.orient()
 
-        origin = np.array(origin)
+        if self.substrates.contains(Point(origin)) and not self.substrates.boundary.contains(Point(origin)):
+            raise TabError(origin, direction, ["Tab annotation is placed inside the board. It has to be on edge or outside the board."])
+
+        origin = np.array(origin, dtype=np.float64)
         direction = np.around(normalize(direction), 4)
+        origin -= direction * float(SHP_EPSILON)
         for geom in listGeometries(self.substrates):
             try:
                 sideOriginA = origin + makePerpendicular(direction) * width / 2
@@ -853,9 +860,9 @@ class Substrate:
                 direction = -direction
                 for p in listGeometries(partitionLine):
                     try:
-                        partitionSplitPointA = closestIntersectionPoint(splitPointA.coords[0],
+                        partitionSplitPointA = closestIntersectionPoint(splitPointA.coords[0] - direction * float(SHP_EPSILON),
                                 direction, p, maxHeight)
-                        partitionSplitPointB = closestIntersectionPoint(splitPointB.coords[0],
+                        partitionSplitPointB = closestIntersectionPoint(splitPointB.coords[0] - direction * float(SHP_EPSILON),
                                 direction, p, maxHeight)
                     except NoIntersectionError: # We cannot span towards the partition line
                         continue
@@ -875,8 +882,8 @@ class Substrate:
                         # penetrate the board substrate. Otherwise, there is a
                         # numerical instability on small slopes that yields
                         # artifacts on substrate union
-                        offsetTabFace = [(p[0] - SHP_EPSILON * direction[0], p[1] - SHP_EPSILON * direction[1]) for p in tabFace.coords]
-                        partitionFaceCoord = [(p[0] + SHP_EPSILON * direction[0], p[1] + SHP_EPSILON * direction[1]) for p in partitionFaceCoord]
+                        offsetTabFace = [(p[0] - float(SHP_EPSILON) * direction[0], p[1] - float(SHP_EPSILON) * direction[1]) for p in tabFace.coords]
+                        partitionFaceCoord = [(p[0] + float(SHP_EPSILON) * direction[0], p[1] + float(SHP_EPSILON) * direction[1]) for p in partitionFaceCoord]
                         tab = Polygon(offsetTabFace + partitionFaceCoord)
                         return self._makeTabFillet(tab, tabFace, fillet)
                 return None, None
@@ -936,7 +943,7 @@ class Substrate:
         Add fillets to inner corners which will be produced by a mill with
         given radius.
         """
-        EPS = 1 # This number is intentionally near KiCAD's resolution of 1nm to not enclose narrow slots, but to preserve radius
+        EPS = 1000 # This number is intentionally near KiCAD's resolution of 1nm to not enclose narrow slots, but to preserve radius
         RES = 32
         if millRadius < EPS:
             return

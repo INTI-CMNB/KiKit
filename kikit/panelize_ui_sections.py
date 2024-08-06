@@ -183,7 +183,7 @@ class SVJustify(SChoiceBase):
 class SLayer(SChoiceBase):
     def __init__(self, *args, **kwargs):
         super().__init__(
-            [str(item).replace("Layer.", "").replace("_", ".")
+            [item.name.replace("Layer.", "").replace("_", ".")
                 for item in Layer], *args, **kwargs)
 
     def validate(self, s):
@@ -389,10 +389,10 @@ TABS_SECTION = {
         typeIn(["fixed", "plugin"]),
         "Number of tabs in a given direction."),
     "cutout": SLength(
-        typeIn(["fixed", "plugin"]),
+        typeIn(["fixed", "full", "plugin"]),
         "Depth of cutouts into the frame"),
     "patchcorners": SBool(
-        typeIn(["fixed", "plugin"]),
+        typeIn(["fixed", "full", "plugin"]),
         "Choose if to apply corner patches for the full tabs"
     ),
     "tabfootprints": SFootprintList(
