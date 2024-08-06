@@ -63,7 +63,10 @@ def getEndPoint(geom):
         # Rectangle is closed, so it starts at the same point as it ends
         point = geom.GetStart()
     else:
-        point = geom.GetStart() if geom.IsClosed() else geom.GetEnd()
+        if hasattr(geom, 'IsClosed'):
+            point = geom.GetStart() if geom.IsClosed() else geom.GetEnd()
+        else:
+            point = geom.GetEnd()
     return point
 
 class CoincidenceList(list):
@@ -233,7 +236,8 @@ def shapePolyToShapely(p: pcbnew.SHAPE_POLY_SET) \
     polygons = []
     for pIdx in range(p.OutlineCount()):
         kOutline = p.Outline(pIdx)
-        assert kOutline.IsClosed()
+        if hasattr(kOutline, 'IsClosed'):
+            assert kOutline.IsClosed()
         outline = shapeLinechainToList(kOutline)
         holes = []
         for hIdx in range(p.HoleCount(pIdx)):
