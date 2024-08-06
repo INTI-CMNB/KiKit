@@ -1,3 +1,9 @@
+kikit (1.6.0-2) stable; urgency=medium
+
+  * Fixed KiCad 6 issues
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Tue, 06 Aug 2024 13:59:05 -0300
+
 kikit (1.6.0-1) stable; urgency=medium
 
   * New upstream release
