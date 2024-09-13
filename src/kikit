@@ -11,6 +11,8 @@
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+dname = os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
+#sys.path.insert(0, os.path.join(dname, 'kikit'))
+sys.path.insert(0, dname)
 from kikit.ui import cli
 cli()
