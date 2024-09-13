@@ -1,3 +1,9 @@
+kikit (1.6.0-3) stable; urgency=medium
+
+  * Fixed KiCad 8.0.4 issue with 3D stencil
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Fri, 13 Sep 2024 07:17:22 -0300
+
 kikit (1.6.0-2) stable; urgency=medium
 
   * Fixed KiCad 6 issues
