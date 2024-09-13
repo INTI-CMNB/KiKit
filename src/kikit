@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# Copyright (c) 2020-2022 Salvador E. Tropea
+# Copyright (c) 2020-2022 Instituto Nacional de Tecnología Industrial
+# License: GPL-3.0
+# Project: KiBot (formerly KiPlot)
+"""
+ KiKit
+
+ Wrapper to run it locally
+"""
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from kikit.ui import cli
+cli()
