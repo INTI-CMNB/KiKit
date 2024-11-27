@@ -52,6 +52,9 @@ class NonFatalErrors(PanelError):
         for pos, err in errors:
             message += f"- Location [{toMm(pos[0])}, {toMm(pos[1])}]\n"
             message += textwrap.indent(err, "  ")
+            if not message.endswith("\n"):
+                message += "\n"
+        message = message[:-1]
         super().__init__(message)
 
 def identity(x):
@@ -348,7 +351,7 @@ def isBoardEdge(edge):
 
     The rule is: all drawings on Edge.Cuts layer are edges.
     """
-    return isinstance(edge, pcbnew.PCB_SHAPE) and edge.GetLayerName() == "Edge.Cuts"
+    return isinstance(edge, pcbnew.PCB_SHAPE) and edge.GetLayer() == pcbnew.Edge_Cuts
 
 def tabSpacing(width, count):
     """
@@ -556,6 +559,7 @@ class Panel:
         for e in boardsEdges:
             e.SetWidth(edgeWidth)
 
+        self._validateVCuts()
         vcuts = self._renderVCutH() + self._renderVCutV()
         keepouts = []
         for cut, clearanceArea in vcuts:
@@ -615,7 +619,10 @@ class Panel:
             if zName.startswith("KIKIT_zone_"):
                 zonesToRefill.append(zone)
                 zone.SetZoneName(originalZoneNames[zName])
-        fillerTool.Fill(zonesToRefill)
+        if len(zonesToRefill) > 0:
+            # Even if there are no zones to refill, the refill algorithm takes
+            # non-trivial time to compute, hence, skip it.
+            fillerTool.Fill(zonesToRefill)
 
         fillBoard.Save(self.filename)
         self._adjustPageSize()
@@ -1201,6 +1208,32 @@ class Panel:
         label.SetTextSize(toKiCADPoint((self.vCutSettings.textSize, self.vCutSettings.textSize)))
         label.SetHorizJustify(EDA_TEXT_HJUSTIFY_T.GR_TEXT_HJUSTIFY_LEFT)
 
+    def _validateVCuts(self, tolerance=fromMm(1)):
+        """
+        Validates V-cuts for cuttitng the PCBs. Renders the violations into the
+        PCB as a side effect.
+        """
+        if len(self.hVCuts) == 0 and len(self.vVCuts) == 0:
+            return
+
+        collisionPolygons = shapely.ops.unary_union([x.substrates.buffer(-tolerance) for x in self.substrates])
+        minx, miny, maxx, maxy = self.panelBBox()
+
+        lines = \
+            [LineString([(minx, y), (maxx, y)]) for y in self.hVCuts] + \
+            [LineString([(x, miny), (x, maxy)]) for x in self.vVCuts]
+
+        error_message = "V-Cut cuts the original PCBs. You should:\n"
+        error_message += "- either reconsider your tab placement,\n"
+        error_message += "- or use different cut type – e.g., mouse bites."
+        for line in lines:
+            for geom in listGeometries(collisionPolygons.intersection(line)):
+                if geom.is_empty:
+                    continue
+                annotationPos = sorted(geom.coords, key=lambda p: -p[1])[0]
+                self._renderLines([geom], Layer.Margin)
+                self.reportError(toKiCADPoint(annotationPos), error_message)
+
     def _renderVCutV(self):
         """ return list of PCB_SHAPE V-Cuts """
         bBox = self.boardSubstrate.boundingBox()
@@ -1508,7 +1541,7 @@ class Panel:
                 message += "- your vertical or horizontal PCB edges are not precisely vertical or horizontal.\n"
                 message += "Modify the design or accept curve approximation via V-cuts."
                 self._renderLines([cut], Layer.Margin)
-                self.reportError(toKiCADPoint(cut[0]), message)
+                self.reportError(toKiCADPoint(cut.coords[0]), message)
                 continue
             cut = cut.simplify(1).parallel_offset(offset, "left")
             start = roundPoint(cut.coords[0])
