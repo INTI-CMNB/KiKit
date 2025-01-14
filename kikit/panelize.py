@@ -453,7 +453,7 @@ def bakeTextVars(board: pcbnew.BOARD) -> None:
     for drawing in board.GetDrawings():
         if not isinstance(drawing, pcbnew.PCB_TEXT):
             continue
-        if isV8():
+        if isV8() or isV9():
             drawing.SetText(drawing.GetShownText(True))
         else:
             drawing.SetText(drawing.GetShownText())
