@@ -16,7 +16,7 @@
       
       
       <link rel="icon" href="../../assets/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.46">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.49">
     
     
       
@@ -2300,10 +2300,10 @@ texts, etc. KiKit has you covered.</p>
 script can use KiKit Python interface to modify it. For the sake of simplicity,
 let's add a hole in the middle of the frame. Therefore, we write the following
 script:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="kn">from</span> <span class="nn">kikit.units</span> <span class="kn">import</span> <span class="n">mm</span>
-<a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="kn">from</span> <span class="nn">kikit.common</span> <span class="kn">import</span> <span class="n">toKiCADPoint</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">kikit.units</span><span class="w"> </span><span class="kn">import</span> <span class="n">mm</span>
+<a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">kikit.common</span><span class="w"> </span><span class="kn">import</span> <span class="n">toKiCADPoint</span>
 <a id="__codelineno-50-3" name="__codelineno-50-3" href="#__codelineno-50-3"></a>
-<a id="__codelineno-50-4" name="__codelineno-50-4" href="#__codelineno-50-4"></a><span class="k">def</span> <span class="nf">kikitPostprocess</span><span class="p">(</span><span class="n">panel</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+<a id="__codelineno-50-4" name="__codelineno-50-4" href="#__codelineno-50-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">kikitPostprocess</span><span class="p">(</span><span class="n">panel</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
 <a id="__codelineno-50-5" name="__codelineno-50-5" href="#__codelineno-50-5"></a>    <span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="n">panel</span><span class="o">.</span><span class="n">panelBBox</span><span class="p">()</span>
 <a id="__codelineno-50-6" name="__codelineno-50-6" href="#__codelineno-50-6"></a>    <span class="n">position</span> <span class="o">=</span> <span class="n">toKiCADPoint</span><span class="p">(((</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span><span class="p">,</span> <span class="n">miny</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">mm</span><span class="p">))</span>
 <a id="__codelineno-50-7" name="__codelineno-50-7" href="#__codelineno-50-7"></a>    <span class="n">panel</span><span class="o">.</span><span class="n">addNPTHole</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">mm</span><span class="p">)</span>
@@ -2432,7 +2432,7 @@ diameter of tooling holes JLC PCB requires, just use:</p>
     <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.expand", "navigation.indexes"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.83f73b43.min.js"></script>
+      <script src="../../assets/javascripts/bundle.88dd0f4e.min.js"></script>
       
     
   </body>
