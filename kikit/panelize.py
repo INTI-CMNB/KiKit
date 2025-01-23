@@ -584,10 +584,6 @@ class Panel:
             zone.SetZoneName(newName)
         self.board.Save(self.filename)
 
-        self.makeLayersVisible() # as they are not in KiCAD 6
-        self.transferProjectSettings()
-        self.writeCustomDrcRules()
-
         # Remove cuts
         for cut, _ in vcuts:
             self.board.Remove(cut)
@@ -625,6 +621,11 @@ class Panel:
             fillerTool.Fill(zonesToRefill)
 
         fillBoard.Save(self.filename)
+
+        self.makeLayersVisible() # as they are not in KiCAD 6
+        self.transferProjectSettings()
+        self.writeCustomDrcRules()
+
         self._adjustPageSize()
 
     def _getRefillEdges(self, reconstructArcs: bool):
