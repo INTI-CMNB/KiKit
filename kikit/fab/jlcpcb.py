@@ -56,7 +56,8 @@ def bomToCsv(bomData, filename):
                 writer.writerow([value, ",".join(refChunk), footprint, lcsc])
 
 def exportJlcpcb(board, outputdir, assembly, schematic, ignore, field,
-           corrections, correctionpatterns, missingerror, nametemplate, drc):
+           corrections, correctionpatterns, missingerror, nametemplate, drc,
+           autoname):
     """
     Prepare fabrication files for JLCPCB including their assembly service
     """
@@ -74,7 +75,11 @@ def exportJlcpcb(board, outputdir, assembly, schematic, ignore, field,
     shutil.rmtree(gerberdir, ignore_errors=True)
     gerberImpl(board, gerberdir)
 
-    archiveName = expandNameTemplate(nametemplate, "gerbers", loadedBoard)
+    if autoname:
+        boardName = os.path.basename(board.replace(".kicad_pcb", ""))
+        archiveName = expandNameTemplate(nametemplate, boardName + "-gerbers", loadedBoard)
+    else:
+        archiveName = expandNameTemplate(nametemplate, "gerbers", loadedBoard)
     shutil.make_archive(os.path.join(outputdir, archiveName), "zip", outputdir, "gerber")
 
     if not assembly:
@@ -93,7 +98,8 @@ def exportJlcpcb(board, outputdir, assembly, schematic, ignore, field,
     bom_components = [c for c in components if getReference(c) in bom_refs]
 
     posData = collectPosData(loadedBoard, correctionFields,
-        bom=bom_components, posFilter=noFilter, correctionFile=correctionpatterns)
+        bom=bom_components, posFilter=noFilter, correctionFile=correctionpatterns,
+        orientationHandling=FootprintOrientationHandling.MirrorBottom)
     boardReferences = set([x[0] for x in posData])
     bom = {key: [v for v in val if v in boardReferences] for key, val in bom.items()}
     bom = {key: val for key, val in bom.items() if len(val) > 0}
