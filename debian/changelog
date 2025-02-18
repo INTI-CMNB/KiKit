@@ -1,3 +1,15 @@
+kikit (1.7.0-1) stable; urgency=medium
+
+  * A preset for JLC PCB V-cuts was added
+  * Add the option to name the manufacturing files after the project in
+    JLC PCB assembly
+  * Fix KiKit crashing on closed polygons in the substrate
+  * Fix edge detection in files with renamed layers
+  * Fix JLCPCB bottom component orientation and update the gerber settings
+  * The GUI was optimized
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Tue, 18 Feb 2025 10:27:09 -0300
+
 kikit (1.6.0-6) stable; urgency=medium
 
   * KiCad 8.0.8 project setting workaround
