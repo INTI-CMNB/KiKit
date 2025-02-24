@@ -1,3 +1,10 @@
+kikit (1.7.1-1) stable; urgency=medium
+
+  * Fixed KiCad 9 detection
+  * Fixed problems with missing DRU file
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Mon, 24 Feb 2025 08:10:52 -0300
+
 kikit (1.7.0-1) stable; urgency=medium
 
   * A preset for JLC PCB V-cuts was added
