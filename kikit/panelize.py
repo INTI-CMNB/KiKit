@@ -490,6 +490,9 @@ class Panel:
         """
         self.errors: List[Tuple[KiPoint, str]] = []
 
+        if not panelFilename.endswith(".kicad_pcb"):
+            raise PanelError("Panel filename has to have .kicad_pcb suffix")
+
         self.filename = panelFilename
         self.board = pcbnew.NewBoard(panelFilename)
         self.sourcePaths = set() # A set of all board files that were appended to the panel
@@ -1645,6 +1648,8 @@ class Panel:
             footprint.SetReference(ref)
         if hasattr(footprint, "SetExcludedFromPosFiles"): # KiCAD 6 doesn't support this attribute
             footprint.SetExcludedFromPosFiles(excludedFromPos)
+        if hasattr(footprint, "SetExcludedFromBOM"):
+            footprint.SetExcludedFromBOM(True)
         if hasattr(footprint, "SetBoardOnly"):
             footprint.SetBoardOnly(True)
         self.board.Add(footprint)
@@ -1666,6 +1671,10 @@ class Panel:
         self.board.Add(footprint)
         if ref is not None:
             footprint.SetReference(ref)
+        if hasattr(footprint, "SetExcludedFromBOM"):
+            footprint.SetExcludedFromBOM(True)
+        if hasattr(footprint, "SetBoardOnly"):
+            footprint.SetBoardOnly(True)
         for pad in footprint.Pads():
             pad.SetSize(toKiCADPoint((copperDiameter, copperDiameter)))
             pad.SetLocalSolderMaskMargin(int((openingDiameter - copperDiameter) / 2))
@@ -2345,7 +2354,7 @@ class Panel:
         hDim.SetStart(toKiCADPoint((minx, miny)))
         hDim.SetEnd(toKiCADPoint((maxx, miny)))
         hDim.SetLayer(layer)
-        hDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MILLIMETRES)
+        hDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MM)
         hDim.SetSuppressZeroes(True)
         if self.chamferHeight is not None:
             hDim.SetExtensionOffset(-self.chamferHeight)
@@ -2359,7 +2368,7 @@ class Panel:
         vDim.SetStart(toKiCADPoint((minx, miny)))
         vDim.SetEnd(toKiCADPoint((minx, maxy)))
         vDim.SetLayer(layer)
-        vDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MILLIMETRES)
+        vDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MM)
         vDim.SetSuppressZeroes(True)
         if self.chamferWidth is not None:
             vDim.SetExtensionOffset(-self.chamferWidth)

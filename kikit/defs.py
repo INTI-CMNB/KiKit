@@ -70,6 +70,10 @@ class LayerV1(IntEnum):
         return list(range(LayerV1.F_Cu, LayerV1.B_Cu + 1))
 
     @staticmethod
+    def innerCu(layerCount):
+        return list(range(LayerV1.In1_Cu, LayerV1.In1_Cu + layerCount - 2))
+
+    @staticmethod
     def all():
         return list(range(LayerV1.F_Cu, LayerV1.User_4 + 1))
 
@@ -151,8 +155,18 @@ class LayerV2(IntEnum):
         return list(range(LayerV2.F_Cu, LayerV2.In30_Cu + 2, 2))
 
     @staticmethod
+    def innerCu(layerCount):
+        return list(range(LayerV2.In1_Cu, LayerV2.In1_Cu + (layerCount - 2) * 2, 2))
+
+    @staticmethod
     def all():
-        return list(range(64))
+        return (
+            list(range(LayerV2.F_Cu, LayerV2.In30_Cu + 2, 2))
+            + list(range(LayerV2.F_Mask, LayerV2.B_Paste + 2, 2))
+            + list(range(LayerV2.Dwgs_User, LayerV2.Margin + 2, 2))
+            + list(range(LayerV2.B_CrtYd, LayerV2.F_Fab + 2, 2))
+            + list(range(LayerV2.User_1, LayerV2.User_9 + 2, 2))
+        )
 
     @staticmethod
     def allTech():
