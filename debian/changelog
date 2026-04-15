@@ -1,3 +1,10 @@
+kikit (1.8.0-1) stable; urgency=medium
+
+  * KiCad 10 support
+  * Upstream release
+
+ -- Salvador Eduardo Tropea <salvador@inti.gob.ar>  Wed, 15 Apr 2026 09:10:27 -0300
+
 kikit (1.7.2-1) stable; urgency=medium
 
   * Fixed KiCad 9 layer numbers
