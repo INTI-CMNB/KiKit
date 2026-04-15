@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, List, Set, Union
 import numpy as np
-from pcbnewTransition import pcbnew
+import pcbnew
 from kikit import units # type: ignore
 
 from kikit.common import fromMm, readParameterList
@@ -16,7 +16,7 @@ def readKiKitProps(footprint):
     Returns a dictionary of key-value pairs.
     """
     for x in footprint.GraphicalItems():
-        if not isinstance(x, pcbnew.FIELD_TYPE) and not isinstance(x, pcbnew.PCB_TEXT):
+        if not isinstance(x, pcbnew.PCB_FIELD) and not isinstance(x, pcbnew.PCB_TEXT):
             continue
         text = x.GetText()
         if text.startswith("KIKIT:"):
@@ -27,12 +27,13 @@ class KiKitAnnotation:
     pass
 
 class TabAnnotation(KiKitAnnotation):
-    def __init__(self, ref, origin, direction, width, maxLength=fromMm(100)):
+    def __init__(self, ref, origin, direction, width, maxLength=fromMm(100), props={}):
         self.ref = ref
         self.origin = origin
         self.direction = direction
         self.width = width
         self.maxLength = maxLength
+        self.props = props
 
     @staticmethod
     def fromFootprint(footprint):
@@ -40,8 +41,10 @@ class TabAnnotation(KiKitAnnotation):
         radOrientation = footprint.GetOrientation().AsRadians()
         direction = (np.cos(radOrientation), -np.sin(radOrientation))
         props = readKiKitProps(footprint)
+        if "width" not in props:
+            raise ValueError("Tab annotation must a KiKit annotation text with 'width' property defined")
         width = units.readLength(props["width"])
-        return TabAnnotation(footprint.GetReference(), origin, direction, width)
+        return TabAnnotation(footprint.GetReference(), origin, direction, width, props=props)
 
 class AnnotationReader:
     """

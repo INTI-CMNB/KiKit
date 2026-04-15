@@ -1,15 +1,15 @@
 from copy import deepcopy
 import itertools
 import textwrap
-from pcbnewTransition import pcbnew, isV6, kicad_major
+import pcbnew
+from pcbnew import LoadBoard, ToMM, VECTOR2I, BOX2I, EDA_ANGLE
 from kikit import sexpr
 from kikit.common import normalize
+from kikit.pcbnew_utils import resolveItem, setDoNotAllowZoneFills, DIM_UNITS_MODE_MM
 
 from pathlib import Path
 
 from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Union
-
-from pcbnewTransition.pcbnew import (LoadBoard, ToMM, VECTOR2I, BOX2I, EDA_ANGLE)
 from enum import Enum
 from shapely.geometry import (Polygon, MultiPolygon, Point, LineString, box,
                               GeometryCollection, MultiLineString)
@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from kikit import substrate
 from kikit import units
 from kikit.kicadUtil import getPageDimensionsFromAst
-from kikit.substrate import Substrate, linestringToKicad, extractRings, TabError
+from kikit.substrate import Substrate, linestringToKicad, extractRings, TabError, TabFilletError
 from kikit.defs import PAPER_DIMENSIONS, STROKE_T, Layer, EDA_TEXT_HJUSTIFY_T, EDA_TEXT_VJUSTIFY_T, PAPER_SIZES
 from kikit.common import *
 from kikit.sexpr import isElement, parseSexprF, SExpr, Atom, findNode, parseSexprListF
@@ -81,11 +81,13 @@ class GridPlacerBase:
 class BasicGridPosition(GridPlacerBase):
     """
     Specify board position in the grid.
+    Supports optional odd-row/odd-column spacing offsets.
     """
     def __init__(self, horSpace: int, verSpace: int,
-                 hbonewidth: int=0, vbonewidth: int=0,
-                 hboneskip: int=0, vboneskip: int=0,
-                 hbonefirst: int=0, vbonefirst: int=0) -> None:
+                 hbonewidth: int = 0, vbonewidth: int = 0,
+                 hboneskip: int = 0, vboneskip: int = 0,
+                 hbonefirst: int = 0, vbonefirst: int = 0,
+                 hevendiff: int = 0, vevendiff: int = 0) -> None:
         self.horSpace = horSpace
         self.verSpace = verSpace
         self.hbonewidth = hbonewidth
@@ -94,21 +96,37 @@ class BasicGridPosition(GridPlacerBase):
         self.vboneskip = vboneskip
         self.hbonefirst = hbonefirst
         self.vbonefirst = vbonefirst
+        self.hevendiff = hevendiff
+        self.vevendiff = vevendiff
 
     def position(self, i: int, j: int, boardSize: Optional[BOX2I]) -> VECTOR2I:
         if boardSize is None:
             assert i == 0 and j == 0
             boardSize = BOX2I(VECTOR2I(0, 0), VECTOR2I(0, 0))
-        hbonecount = 0 if self.hbonewidth == 0 \
-                       else max((i + self.hbonefirst)  // (self.hboneskip + 1), 0)
-        vbonecount = 0 if self.vbonewidth == 0 \
-                       else max((j + self.vbonefirst) // (self.vboneskip + 1), 0)
-        xPos = j * (boardSize.GetWidth() + self.horSpace) + \
-               vbonecount * (self.vbonewidth + self.horSpace)
-        yPos = i * (boardSize.GetHeight() + self.verSpace) + \
-               hbonecount * (self.hbonewidth + self.verSpace)
-        return toKiCADPoint((xPos, yPos))
+        w = boardSize.GetWidth()
+        h = boardSize.GetHeight()
 
+        # Accumulate horizontal offset
+        x = 0
+        for col in range(j):
+            delta = self.horSpace + (self.hevendiff if col % 2 == 1 else 0)
+            x += w + delta
+
+        vbonecount = 0 if self.vbonewidth == 0 \
+            else max((j + self.vbonefirst) // (self.vboneskip + 1), 0)
+        x += vbonecount * (self.vbonewidth + self.horSpace)
+
+        # Accumulate vertical offset
+        y = 0
+        for row in range(i):
+            delta = self.verSpace + (self.vevendiff if row % 2 == 1 else 0)
+            y += h + delta
+
+        hbonecount = 0 if self.hbonewidth == 0 \
+            else max((i + self.hbonefirst) // (self.hboneskip + 1), 0)
+        y += hbonecount * (self.hbonewidth + self.verSpace)
+
+        return toKiCADPoint((x, y))
 
 class OddEvenRowsPosition(BasicGridPosition):
     """
@@ -167,10 +185,7 @@ class NetClass():
         self.nets.add(netname)
 
     def serialize(self) -> Any:
-        data = deepcopy(self.data)
-        if isV6():
-            data["nets"] = list(self.nets)
-        return data
+        return deepcopy(self.data)
 
 def getOriginCoord(origin, bBox):
     """Returns real coordinates (VECTOR2I) of the origin for given bounding box"""
@@ -331,19 +346,35 @@ def renameNets(board, renamer):
     remapNets(board.GetPads(), newNetMapping)
     remapNets(board.GetTracks(), newNetMapping)
     remapNets(board.Zones(), newNetMapping)
+    remapNets((d for d in board.GetDrawings()
+               if hasattr(d, "GetNetname") and d.GetNetname() in newNetMapping), newNetMapping)
 
     for name in originalNetNames:
         if name != "" and name not in newNames:
             board.RemoveNative(netinfo.GetNetItem(name))
 
-def renameRefs(board, renamer):
+def renameRefs(board, renamer, bakeRef):
     """
     Given a board and renaming function (taking original name, returning new
     name) renames the references
     """
     for footprint in board.GetFootprints():
-        ref = footprint.Reference().GetText()
-        footprint.Reference().SetText(renamer(ref))
+        ref = footprint.Reference()
+        if bakeRef:
+            textObject = pcbnew.PCB_TEXT(board)
+            textObject.SetText(ref.GetText())
+            textObject.SetTextX(ref.GetTextPos()[0])
+            textObject.SetTextY(ref.GetTextPos()[1])
+            textObject.SetTextThickness(ref.GetTextThickness())
+            textObject.SetTextSize(ref.GetTextSize())
+            textObject.SetHorizJustify(ref.GetHorizJustify())
+            textObject.SetVertJustify(ref.GetVertJustify())
+            textObject.SetTextAngle(ref.GetTextAngle())
+            textObject.SetLayer(ref.GetLayer())
+            textObject.SetMirrored(ref.IsMirrored())
+            board.Add(textObject)
+            ref.SetVisible(False)
+        ref.SetText(renamer(ref.GetText()))
 
 def isBoardEdge(edge):
     """
@@ -382,6 +413,29 @@ def polygonToZone(polygon, board):
         zone.Outline().AddHole(linestringToKicad(boundary))
     return zone
 
+def cropZoneByPolygon(zone: pcbnew.ZONE, polygon: Polygon) -> None:
+    """
+    Modify the zone so it is cropped by the polygon. If the zone is split into
+    multiple zones, return all of them. Handles holes in both the original zone
+    and the cropping polygon.
+    """
+    zoneGeom = substrate.shapePolyToShapely(zone.Outline())
+    if not zoneGeom.is_valid:
+        # The zones might be self-intersecting.
+        zoneGeom = zoneGeom.buffer(0)
+        if not zoneGeom.is_valid:
+            raise PanelError("Zone geometry is invalid")
+    intersection = zoneGeom.intersection(polygon)
+
+    zone.Outline().RemoveAllContours()
+    geoms = [intersection] if isinstance(intersection, Polygon) else intersection.geoms
+    for geom in geoms:
+        if not hasattr(geom, "exterior"):
+            continue
+        zone.Outline().AddOutline(linestringToKicad(geom.exterior))
+        for hole in geom.interiors:
+            zone.Outline().AddHole(linestringToKicad(hole))
+
 def buildTabs(panel: "Panel", substrate: Substrate,
               partitionLines: Union[GeometryCollection, LineString],
               tabAnnotations: Iterable[TabAnnotation], fillet: KiLength = 0) -> \
@@ -407,6 +461,45 @@ def buildTabs(panel: "Panel", substrate: Substrate,
                 Layer.Margin)
             panel.reportError(toKiCADPoint(e.origin), str(e))
     return tabs, cuts
+
+def addFrameFillets(frameGeometry, boardSubstrates, fillet, panel=None):
+    """
+    Given frame geometry (before merging into the panel) and board substrates
+    carrying tab annotations, shoot reverse tabs toward the frame and fillet
+    them. Returns the modified frame geometry.
+
+    If panel is provided, stores debug geometry (reverse tabs, raw frame) on it.
+    """
+    if panel is not None:
+        panel.debugRawFrame.append(frameGeometry)
+
+    if fillet == 0:
+        return frameGeometry
+
+    frameSubstrate = Substrate([])
+    frameSubstrate.union(frameGeometry)
+
+    tabs = []
+    for s in boardSubstrates:
+        for annotation in s.annotations:
+            if not isinstance(annotation, TabAnnotation):
+                continue
+            try:
+                reverseDir = (-annotation.direction[0], -annotation.direction[1])
+                t, _ = frameSubstrate.tab(
+                    annotation.origin, reverseDir, annotation.width,
+                    partitionLine=None, fillet=fillet)
+                if t is not None:
+                    tabs.append(t)
+            except (TabError, TabFilletError):
+                pass  # Tab doesn't reach this frame piece (e.g. board-to-board tab)
+
+    if panel is not None:
+        panel.debugReverseTabs.extend(tabs)
+
+    if tabs:
+        frameSubstrate.union(tabs)
+    return frameSubstrate.substrates
 
 def normalizePartitionLineOrientation(line):
     """
@@ -453,10 +546,7 @@ def bakeTextVars(board: pcbnew.BOARD) -> None:
     for drawing in board.GetDrawings():
         if not isinstance(drawing, pcbnew.PCB_TEXT):
             continue
-        if kicad_major() >= 8:
-            drawing.SetText(drawing.GetShownText(True))
-        else:
-            drawing.SetText(drawing.GetShownText())
+        drawing.SetText(drawing.GetShownText(True))
 
 @dataclass
 class VCutSettings:
@@ -493,6 +583,10 @@ class Panel:
         if not panelFilename.endswith(".kicad_pcb"):
             raise PanelError("Panel filename has to have .kicad_pcb suffix")
 
+        panelFileDirectory = os.path.dirname(panelFilename)
+        if panelFileDirectory and not os.path.isdir(panelFileDirectory):
+            raise PanelError(f"Output directory {panelFileDirectory} is not found")
+
         self.filename = panelFilename
         self.board = pcbnew.NewBoard(panelFilename)
         self.sourcePaths = set() # A set of all board files that were appended to the panel
@@ -507,6 +601,10 @@ class Panel:
         self.renderedMousebiteCounter = 0
         self.zonesToRefill = pcbnew.ZONES()
         self.pageSize: Union[None, str, Tuple[int, int]] = None
+        self.forwardTabs: List[Polygon] = []
+        self.backbonePieces: Optional[List[Polygon]] = None
+        self.debugReverseTabs: List[Polygon] = []
+        self.debugRawFrame: List[Union[Polygon, MultiPolygon]] = []
 
         self.annotationReader: AnnotationReader = AnnotationReader.getDefault()
         self.drcExclusions: List[DrcExclusion] = []
@@ -514,6 +612,7 @@ class Panel:
         # Therefore we have to handle them separately
         self.newNetClasses: Dict[str, Any] = {}
         self.netCLassPatterns: List[Dict[str, str]] = []
+        self.netClassAssignments: Dict[str, List[str]] = {}
         self.customDRCRules: List[SExpr] = []
 
         # KiCAD allows to keep text variables for project. We keep a set of
@@ -730,6 +829,7 @@ class Panel:
             currentPro["net_settings"]["classes"] = sourcePro["net_settings"]["classes"]
             currentPro["net_settings"]["classes"] += [x.serialize() for x in self.newNetClasses.values()]
             currentPro["net_settings"]["netclass_patterns"] = self.netCLassPatterns
+            currentPro["net_settings"]["netclass_assignments"] = self.netClassAssignments
 
             with open(self.getProFilepath(), "w", encoding="utf-8") as f:
                 json.dump(currentPro, f, indent=2)
@@ -816,6 +916,9 @@ class Panel:
                 "pattern": netRenamer(pattern)
             })
 
+        for net, netclasses in (project["net_settings"].get("netclass_assignments") or {}).items():
+            self.netClassAssignments[netRenamer(net)] = [netRenamer(nc) for nc in netclasses]
+
     def _inheriCustomDrcRules(self, board, netRenamer):
         """
         KiCADhas has no API for custom DRC rules, so we read the source files
@@ -839,7 +942,10 @@ class Panel:
             # inherit.
             return
 
-        conditionRegex = re.compile(r"((A|B)\.Net(Class|Name)\s*?(==|!=)\s*?)'(.*?)'")
+        # Beware: "A . HASnetCLASS ( 'foo' )" is a syntactically valid condition in DRU files.
+        # Therefore, we must be as tolerant to spaces and case as the KiCad DRU parser,
+        # so that we catch all rules that might be in use.
+        conditionRegex = re.compile(r"([AB]\s*\.\s*(?i:(?:NetClass|NetName)\s*[=!]=|(?:hasNetclass|hasExactNetclass|inDiffPair)\s*\()\s*)'(.*?)'")
 
         for rule in rules:
             if isElement("version")(rule):
@@ -851,7 +957,7 @@ class Panel:
                     if isElement("condition")(clause):
                         # Rename net classes and names in the condition
                         clause.items[1].value = conditionRegex.sub(
-                            lambda m: f"{m.group(1)}'{netRenamer(m.group(5))}'", clause.items[1].value)
+                            lambda m: f"{m.group(1)}'{netRenamer(m.group(2))}'", clause.items[1].value)
                 self.customDRCRules.append(rule)
             else:
                 raise RuntimeError(f"Unkwnown custom DRC rule {rule}")
@@ -992,7 +1098,7 @@ class Panel:
                     netRenamer: Optional[Callable[[int, str], str]] = None,
                     refRenamer: Optional[Callable[[int, str], str]] = None,
                     inheritDrc: bool = True, interpretAnnotations: bool=True,
-                    bakeText: bool = False):
+                    bakeText: bool = False, bakeRef: bool = False):
         """
         Appends a board to the panel.
 
@@ -1010,7 +1116,9 @@ class Panel:
 
         You can also specify functions which will rename the net and ref names.
         By default, nets are renamed to "Board_{n}-{orig}", refs are unchanged.
-        The renamers are given board seq number and original name.
+        The renamers are given board seq number and original name. The bakeRef
+        flag allows you to keep the old references on the silkscreen when
+        renaming them.
 
         You can also decide whether you would like to inherit design rules from
         this boards or not.
@@ -1043,12 +1151,16 @@ class Panel:
                                  f"thickness ({toMm(thickness)} mm) differs from " \
                                  f"thickness of the panel ({toMm(panelThickness)}) mm")
         self.inheritCopperLayers(board)
+        self.inheritEnabledLayers(board)
 
         if not sourceArea:
             sourceArea = findBoardBoundingBox(board)
         elif shrink:
             sourceArea = findBoardBoundingBox(board, sourceArea)
-        enlargedSourceArea = expandRect(sourceArea, tolerance)
+        edgeMaxWidth = max(
+            (e.GetWidth() for e in collectEdges(board, Layer.Edge_Cuts)),
+            default=0)
+        enlargedSourceArea = expandRect(sourceArea, tolerance + edgeMaxWidth)
         originPoint = getOriginCoord(origin, sourceArea)
         translation = VECTOR2I(destination[0] - originPoint[0],
                               destination[1] - originPoint[1])
@@ -1063,7 +1175,7 @@ class Panel:
 
         renameNets(board, netRenamerFn)
         if refRenamer is not None:
-            renameRefs(board, lambda x: refRenamer(len(self.substrates), x))
+            renameRefs(board, lambda x: refRenamer(len(self.substrates), x), bakeRef)
 
         drawings = collectItems(board.GetDrawings(), enlargedSourceArea)
         footprints = collectFootprints(board.GetFootprints(), enlargedSourceArea)
@@ -1083,7 +1195,7 @@ class Panel:
             # the attribute must be first removed without changing the
             # orientation of the text.
             for item in (*footprint.GraphicalItems(), footprint.Value(), footprint.Reference()):
-                if isinstance(item, pcbnew.FIELD_TYPE) and item.IsKeepUpright():
+                if isinstance(item, pcbnew.PCB_FIELD) and item.IsKeepUpright():
                     actualOrientation = item.GetDrawRotation()
                     item.SetKeepUpright(False)
                     alteredOrientation = item.GetDrawRotation()
@@ -1099,10 +1211,6 @@ class Panel:
             track.Rotate(originPoint, rotationAngle)
             track.Move(translation)
             appendItem(self.board, track, yieldMapping)
-        for zone in zones:
-            zone.Rotate(originPoint, rotationAngle)
-            zone.Move(translation)
-            appendItem(self.board, zone, yieldMapping)
         for netId in board.GetNetInfo().NetsByNetcode():
             self.board.Add(board.GetNetInfo().GetNetItem(netId))
 
@@ -1130,12 +1238,17 @@ class Panel:
             raise substrate.PositionError(f"{filename}: {e.origMessage}", point)
         for drawing in otherDrawings:
             appendItem(self.board, drawing, yieldMapping)
+        for zone in zones:
+            zone.Rotate(originPoint, rotationAngle)
+            zone.Move(translation)
+            cropZoneByPolygon(zone, s.exterior())
+            appendItem(self.board, zone, yieldMapping)
 
         try:
             exclusions = readBoardDrcExclusions(board)
             for drcE in exclusions:
                 try:
-                    newObjects = [self.board.GetItem(pcbnew.KIID(itemMapping[x.m_Uuid.AsString()])) for x in drcE.objects]
+                    newObjects = [resolveItem(self.board, pcbnew.KIID(itemMapping[x.m_Uuid.AsString()])) for x in drcE.objects]
                     assert all(x is not None for x in newObjects)
                     newPosition = doTransformation(drcE.position, rotationAngle, originPoint, translation)
                     self.drcExclusions.append(DrcExclusion(
@@ -1164,9 +1277,13 @@ class Panel:
 
     def appendSubstrate(self, substrate: ToPolygonGeometry) -> None:
         """
-        Append a piece of substrate or a list of pieces to the panel. Substrate
-        can be either BOX2I or Shapely polygon. Newly appended corners can be
-        rounded by specifying non-zero filletRadius.
+        Append a piece of substrate to the panel's merged boardSubstrate.
+        Substrate can be either BOX2I or Shapely polygon.
+
+        Note: this only adds material to boardSubstrate (the panel outline).
+        It does not add to the substrates list used for partition lines and
+        tab generation. To influence tab placement, pass the substrate as a
+        boundary substrate to buildPartitionLineFromBB instead.
         """
         polygon = toPolygon(substrate)
         self.boardSubstrate.union(polygon)
@@ -1203,6 +1320,7 @@ class Panel:
 
     def _setVCutSegmentStyle(self, segment):
         segment.SetShape(STROKE_T.S_SEGMENT)
+        self._ensureLayerEnabled(self.vCutSettings.layer)
         segment.SetLayer(self.vCutSettings.layer)
         segment.SetWidth(self.vCutSettings.lineWidth)
 
@@ -1214,6 +1332,7 @@ class Panel:
             "pos_inv_inch": f"{(origin - position) / inch:.3f} mm",
         }
         label.SetText(self.vCutSettings.textTemplate.format(**variables))
+        self._ensureLayerEnabled(self.vCutSettings.layer)
         label.SetLayer(self.vCutSettings.layer)
         label.SetTextThickness(self.vCutSettings.textThickness)
         label.SetTextSize(toKiCADPoint((self.vCutSettings.textSize, self.vCutSettings.textSize)))
@@ -1303,7 +1422,7 @@ class Panel:
                  destination: VECTOR2I, placer: GridPlacerBase,
                  rotation: KiAngle=fromDegrees(0), netRenamePattern: str="Board_{n}-{orig}",
                  refRenamePattern: str="Board_{n}-{orig}", tolerance: KiLength=0,
-                 bakeText: bool=False) \
+                 bakeText: bool=False, bakeRef: bool=False) \
                      -> List[Substrate]:
         """
         Place the given board in a grid pattern with given spacing. The board
@@ -1376,7 +1495,7 @@ class Panel:
                 boardfile, dest, sourceArea=sourceArea,
                 tolerance=tolerance, origin=Origin.Center,
                 rotationAngle=boardRotation, netRenamer=netRenamer,
-                refRenamer=refRenamer, bakeText=bakeText)
+                refRenamer=refRenamer, bakeText=bakeText, bakeRef=bakeRef)
             if not topLeftSize:
                 topLeftSize = boardSize
 
@@ -1479,37 +1598,67 @@ class Panel:
         self.appendSubstrate(frameBody)
 
     def makeRailsTb(self, thickness: KiLength, minHeight: KiLength = 0,
-                    maxHeight: Optional[KiLength] = None) -> None:
+                    maxHeight: Optional[KiLength] = None,
+                    vspace: Optional[KiLength] = None) -> None:
         """
         Adds a rail to top and bottom. You can specify minimal height the panel
         has to feature. You can also specify maximal height of the panel. If the
         height would be exceeded, error is set.
+
+        If vspace is specified, the rails are placed at exact vspace distance
+        from the board bounding box (using boardsBBox). If vspace is None, the
+        rails are placed flush against the panel bounding box (legacy behavior).
         """
-        minx, miny, maxx, maxy = self.panelBBox()
-        height = maxy - miny + 2 * thickness
-        if maxHeight is not None and height > maxHeight:
-            self.reportError(toKiCADPoint((maxx, maxy)), f"Panel height {height / units.mm} mm exceeds the limit {maxHeight / units.mm} mm")
-        if height < minHeight:
-            thickness = (minHeight - maxy + miny) // 2
-        topRail = box(minx, maxy, maxx, maxy + thickness)
-        bottomRail = box(minx, miny, maxx, miny - thickness)
+        if vspace is not None:
+            minx, miny, maxx, maxy = self.boardsBBox()
+            height = maxy - miny + 2 * (thickness + vspace)
+            if maxHeight is not None and height > maxHeight:
+                self.reportError(toKiCADPoint((maxx, maxy)), f"Panel height {height / units.mm} mm exceeds the limit {maxHeight / units.mm} mm")
+            if height < minHeight:
+                thickness = (minHeight - maxy + miny) // 2 - vspace
+            topRail = box(minx, maxy + vspace, maxx, maxy + vspace + thickness)
+            bottomRail = box(minx, miny - vspace, maxx, miny - vspace - thickness)
+        else:
+            minx, miny, maxx, maxy = self.panelBBox()
+            height = maxy - miny + 2 * thickness
+            if maxHeight is not None and height > maxHeight:
+                self.reportError(toKiCADPoint((maxx, maxy)), f"Panel height {height / units.mm} mm exceeds the limit {maxHeight / units.mm} mm")
+            if height < minHeight:
+                thickness = (minHeight - maxy + miny) // 2
+            topRail = box(minx, maxy, maxx, maxy + thickness)
+            bottomRail = box(minx, miny, maxx, miny - thickness)
         self.appendSubstrate(topRail)
         self.appendSubstrate(bottomRail)
 
     def makeRailsLr(self, thickness: KiLength, minWidth: KiLength = 0,
-                    maxWidth: Optional[KiLength] = None) -> None:
+                    maxWidth: Optional[KiLength] = None,
+                    hspace: Optional[KiLength] = None) -> None:
         """
         Adds a rail to left and right. You can specify minimal width the panel
         has to feature.
+
+        If hspace is specified, the rails are placed at exact hspace distance
+        from the board bounding box (using boardsBBox). If hspace is None, the
+        rails are placed flush against the panel bounding box (legacy behavior).
         """
-        minx, miny, maxx, maxy = self.panelBBox()
-        width = maxx - minx + 2 * thickness
-        if maxWidth is not None and width > maxWidth:
-            self.reportError(toKiCADPoint((maxx, maxy)), f"Panel width {width / units.mm} mm exceeds the limit {maxWidth / units.mm} mm")
-        if width < minWidth:
-            thickness = (minWidth - maxx + minx) // 2
-        leftRail = box(minx - thickness, miny, minx, maxy)
-        rightRail = box(maxx, miny, maxx + thickness, maxy)
+        if hspace is not None:
+            minx, miny, maxx, maxy = self.boardsBBox()
+            width = maxx - minx + 2 * (thickness + hspace)
+            if maxWidth is not None and width > maxWidth:
+                self.reportError(toKiCADPoint((maxx, maxy)), f"Panel width {width / units.mm} mm exceeds the limit {maxWidth / units.mm} mm")
+            if width < minWidth:
+                thickness = (minWidth - maxx + minx) // 2 - hspace
+            leftRail = box(minx - hspace - thickness, miny, minx - hspace, maxy)
+            rightRail = box(maxx + hspace, miny, maxx + hspace + thickness, maxy)
+        else:
+            minx, miny, maxx, maxy = self.panelBBox()
+            width = maxx - minx + 2 * thickness
+            if maxWidth is not None and width > maxWidth:
+                self.reportError(toKiCADPoint((maxx, maxy)), f"Panel width {width / units.mm} mm exceeds the limit {maxWidth / units.mm} mm")
+            if width < minWidth:
+                thickness = (minWidth - maxx + minx) // 2
+            leftRail = box(minx - thickness, miny, minx, maxy)
+            rightRail = box(maxx, miny, maxx + thickness, maxy)
         self.appendSubstrate(leftRail)
         self.appendSubstrate(rightRail)
 
@@ -1572,7 +1721,7 @@ class Panel:
                 message += "- check your tab placement if it as expected\n"
                 message += "You can use layer style of cuts to see them and validate them."
                 self._renderLines([cut], Layer.Margin)
-                self.reportError(toKiCADPoint(cut[0]), message)
+                self.reportError(toKiCADPoint(cut.coords[0]), message)
                 continue
 
     def makeMouseBites(self, cuts, diameter, spacing, offset=fromMm(0.25),
@@ -1781,6 +1930,7 @@ class Panel:
             t, c = buildTabs(self, s, s.partitionLine, s.annotations, fillet)
             tabs.extend(t)
             cuts.extend(c)
+        self.forwardTabs.extend(tabs)
         self.boardSubstrate.union(tabs)
         return cuts
 
@@ -1951,12 +2101,40 @@ class Panel:
                     self.appendSubstrate(t)
                     cuts += c
 
+        # Fill any concavities between rounded-corner boards by unioning
+        # the convex hull of the substrate. This replaces the per-corner
+        # triangle patches which created spike artifacts when boards had
+        # rounded corners.
+        hull = self.boardSubstrate.substrates.convex_hull
+        self.boardSubstrate.union(hull)
+
         return cuts
 
     def inheritLayerNames(self, board):
         for layer in pcbnew.LSET.AllLayersMask().Seq():
             name = board.GetLayerName(layer)
             self.board.SetLayerName(layer, name)
+
+    def inheritEnabledLayers(self, board):
+        """
+        Extend the panel's enabled layer set to include all layers enabled in
+        the given source board, so the panel never has fewer enabled layers
+        than any of its sources.
+        """
+        lset = self.board.GetEnabledLayers()
+        lset.addLayerSet(board.GetEnabledLayers())
+        self.board.SetEnabledLayers(lset)
+
+    def _ensureLayerEnabled(self, layer):
+        """
+        Enable the given layer on the panel board if it is not already enabled.
+        Called before placing any KiKit-generated item on a layer so that the
+        layer is always visible after save.
+        """
+        lset = self.board.GetEnabledLayers()
+        if not lset.Contains(layer):
+            lset.AddLayer(layer)
+            self.board.SetEnabledLayers(lset)
 
     def inheritCopperLayers(self, board):
         """
@@ -2017,8 +2195,7 @@ class Panel:
             zoneContainer.SetAssignedPriority(0)
 
             for l in layers:
-                if not self.board.GetEnabledLayers().Contains(l):
-                    continue
+                self._ensureLayerEnabled(l)
                 zoneContainer = zoneContainer.Duplicate()
                 zoneContainer.SetLayer(l)
                 self.board.Add(zoneContainer)
@@ -2049,7 +2226,7 @@ class Panel:
         zone.SetIsRuleArea(True)
         zone.SetDoNotAllowTracks(noTracks)
         zone.SetDoNotAllowVias(noVias)
-        zone.SetDoNotAllowCopperPour(noCopper)
+        setDoNotAllowZoneFills(zone, noCopper)
 
         zone.SetLayerSet(pcbnew.LSET.AllCuMask(self.copperLayerCount))
 
@@ -2074,6 +2251,7 @@ class Panel:
         textObject.SetHorizJustify(hJustify)
         textObject.SetVertJustify(vJustify)
         textObject.SetTextAngle(orientation)
+        self._ensureLayerEnabled(layer)
         textObject.SetLayer(layer)
         textObject.SetMirrored(isBottomLayer(layer))
         self.board.Add(textObject)
@@ -2135,10 +2313,14 @@ class Panel:
 
     def buildPartitionLineFromBB(self, boundarySubstrates=[], safeMargin=0):
         """
-        Builds partition & backbone line from bounding boxes of the substrates.
-        You can optionally pass extra substrates (e.g., for frame). Without
-        these extra substrates no partition line would be generated on the side
-        where the boundary is, therefore, there won't be any tabs.
+        Builds partition & backbone line from bounding boxes of the individual
+        board substrates (self.substrates), not from boardSubstrate.
+
+        You can optionally pass extra boundarySubstrates — "ghost" substrates
+        representing future framing or rails. These are used only for partition
+        line computation and are not added to the panel. Without them, no
+        partition line is generated on the panel boundary sides, so no tabs
+        will be placed there.
         """
         partition = substrate.SubstratePartitionLines(
             self.substrates, boundarySubstrates,
@@ -2152,6 +2334,7 @@ class Panel:
         """
         segment = pcbnew.PCB_SHAPE()
         segment.SetShape(STROKE_T.S_SEGMENT)
+        self._ensureLayerEnabled(layer)
         segment.SetLayer(layer)
         segment.SetWidth(thickness)
         segment.SetStart(toKiCADPoint((start[0], start[1])))
@@ -2183,6 +2366,29 @@ class Panel:
     def debugRenderBoundingBoxes(self):
         lines = [box(*s.bounds()).exterior for s in self.substrates]
         self._renderLines(lines, Layer.Cmts_User, fromMm(0.5))
+
+    def debugRenderTabFillet(self):
+        """
+        Render forward tabs, reverse tabs, and raw support geometry on
+        layers to help debug tab fillet issues.
+        - Margin: forward tabs (board-side)
+        - Eco1_User: reverse tabs (frame-side)
+        - Eco2_User: raw support geometry (before fillets)
+        """
+        lines = [t.exterior for t in self.forwardTabs]
+        self._renderLines(lines, Layer.Margin, fromMm(0.3))
+        lines = [t.exterior for t in self.debugReverseTabs]
+        self._renderLines(lines, Layer.Eco1_User, fromMm(0.3))
+        for geom in self.debugRawFrame:
+            outlines = [geom.exterior] if hasattr(geom, 'exterior') else \
+                [g.exterior for g in listGeometries(geom)]
+            self._renderLines(outlines, Layer.Eco2_User, fromMm(0.3))
+            if hasattr(geom, 'interiors'):
+                self._renderLines(list(geom.interiors), Layer.Eco2_User, fromMm(0.3))
+            else:
+                for g in listGeometries(geom):
+                    if hasattr(g, 'interiors'):
+                        self._renderLines(list(g.interiors), Layer.Eco2_User, fromMm(0.3))
 
     def renderBackbone(self, vthickness: KiLength, hthickness: KiLength,
             vcut: bool, hcut: bool, vskip: int=0, hskip: int=0,
@@ -2274,6 +2480,7 @@ class Panel:
                     (x[0] + c * vthickness // 2, x[1])])
                 cuts.append(cut)
 
+        self.backbonePieces = pieces
         self.appendSubstrate(pieces)
         return cuts
 
@@ -2331,6 +2538,15 @@ class Panel:
         self.boardSubstrate.translate(vec)
         self.backboneLines = [shapely.affinity.translate(bline, vec[0], vec[1])
                               for bline in self.backboneLines]
+        self.forwardTabs = [shapely.affinity.translate(t, vec[0], vec[1])
+                            for t in self.forwardTabs]
+        if self.backbonePieces is not None:
+            self.backbonePieces = [shapely.affinity.translate(p, vec[0], vec[1])
+                                   for p in self.backbonePieces]
+        self.debugReverseTabs = [shapely.affinity.translate(t, vec[0], vec[1])
+                                 for t in self.debugReverseTabs]
+        self.debugRawFrame = [shapely.affinity.translate(g, vec[0], vec[1])
+                              for g in self.debugRawFrame]
         self.hVCuts = [c + vec[1] for c in self.hVCuts]
         self.vVCuts = [c + vec[0] for c in self.vVCuts]
         for c in self.vVCuts:
@@ -2348,13 +2564,15 @@ class Panel:
         """
         minx, miny, maxx, maxy = self.panelBBox()
 
+        self._ensureLayerEnabled(layer)
+
         hDim = pcbnew.PCB_DIM_ORTHOGONAL(self.board)
         hDim.SetOrientation(pcbnew.PCB_DIM_ORTHOGONAL.DIR_HORIZONTAL)
         hDim.SetHeight(-offset)
         hDim.SetStart(toKiCADPoint((minx, miny)))
         hDim.SetEnd(toKiCADPoint((maxx, miny)))
         hDim.SetLayer(layer)
-        hDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MM)
+        hDim.SetUnitsMode(DIM_UNITS_MODE_MM)
         hDim.SetSuppressZeroes(True)
         if self.chamferHeight is not None:
             hDim.SetExtensionOffset(-self.chamferHeight)
@@ -2368,7 +2586,7 @@ class Panel:
         vDim.SetStart(toKiCADPoint((minx, miny)))
         vDim.SetEnd(toKiCADPoint((minx, maxy)))
         vDim.SetLayer(layer)
-        vDim.SetUnitsMode(pcbnew.DIM_UNITS_MODE_MM)
+        vDim.SetUnitsMode(DIM_UNITS_MODE_MM)
         vDim.SetSuppressZeroes(True)
         if self.chamferWidth is not None:
             vDim.SetExtensionOffset(-self.chamferWidth)
@@ -2392,18 +2610,18 @@ def getFootprintByReference(board, reference):
             return f
     raise RuntimeError(f"Footprint with reference '{reference}' not found")
 
-def extractSourceAreaByAnnotation(board, reference):
+def extractSourceAreaByAnnotation(board, reference, layer=Layer.Edge_Cuts):
     """
     Given a board and a reference to annotation in the form of symbol
     `kikit:Board`, extract the source area. The source area is a bounding box of
-    continuous lines in the Edge.Cuts on which the arrow in reference point.
+    continuous lines in the specified layer on which the arrow in reference point.
     """
     try:
         annotation = getFootprintByReference(board, reference)
     except Exception:
         raise RuntimeError(f"Cannot extract board - boards is specified via footprint with reference '{reference}' which was not found")
     tip = annotation.GetPosition()
-    edges = collectEdges(board, Layer.Edge_Cuts)
+    edges = collectEdges(board, layer)
     # KiCAD 6 will need an adjustment - method Collide was introduced with
     # different parameters. But v6 API is not available yet, so we leave this
     # to future ourselves.
@@ -2411,7 +2629,7 @@ def extractSourceAreaByAnnotation(board, reference):
     rings = extractRings(edges)
     ringPointedAt = indexOf(rings, lambda x: pointedAt in x)
     if ringPointedAt == -1:
-        raise RuntimeError("Annotation symbol '{reference}' does not point to a board edge")
+        raise RuntimeError(f"Annotation symbol '{reference}' does not point to a board edge")
     return findBoundingBox([edges[i] for i in rings[ringPointedAt]])
 
 

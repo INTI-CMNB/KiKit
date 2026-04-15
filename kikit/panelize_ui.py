@@ -169,7 +169,7 @@ def completeSection(section):
 @click.option("--fiducials", "-f", type=Section(),
     help="Override fiducials settings.",
     **addCompatibleShellCompletion(completeSection(FIDUCIALS_SECTION)))
-@click.option("--text", "-t", type=Section(),
+@click.option("--text", type=Section(),
     help="Override text settings.",
     **addCompatibleShellCompletion(completeSection(TEXT_SECTION)))
 @click.option("--text2", type=Section(),
@@ -237,18 +237,20 @@ def doPanelization(input, output, preset, plugins=[]):
     handle errors based on the context; e.g., CLI vs GUI
     """
     from kikit import panelize_ui_impl as ki
-    from kikit.panelize import Panel, NonFatalErrors
-    from pcbnewTransition.transition import pcbnew
-    from pcbnewTransition.pcbnew import LoadBoard
+    from kikit.panelize import Panel, NonFatalErrors, PanelError
+    import pcbnew
+    from pcbnew import LoadBoard
     from itertools import chain
 
-    if preset["debug"]["deterministic"]:
-        pcbnew.KIID.SeedGenerator(42)
     if preset["debug"]["drawtabfail"]:
         import kikit.substrate
         kikit.substrate.TABFAIL_VISUAL = True
 
     board = LoadBoard(input)
+    if preset["debug"]["deterministic"]:
+        pcbnew.KIID.SeedGenerator(42)
+    if board is None:
+        raise PanelError(f"Cannot load board {input}. Check if the path is correct or if you have permissions to read it.")
     panel = Panel(output)
 
     useHookPlugins = ki.loadHookPlugins(plugins, board, preset)
@@ -276,9 +278,13 @@ def doPanelization(input, output, preset, plugins=[]):
 
     useHookPlugins(lambda x: x.afterTabs(panel, tabCuts, backboneCuts))
 
+    preFrameSubstrate = panel.boardSubstrate.substrates
+
     frameCuts = ki.buildFraming(preset, panel)
 
     useHookPlugins(lambda x: x.afterFraming(panel, frameCuts))
+
+    ki.buildTabFillets(preset, panel, preFrameSubstrate)
 
     ki.buildTooling(preset, panel)
     ki.buildFiducials(preset, panel)
@@ -336,17 +342,16 @@ def separate(input, output, source, page, debug, keepannotations, preservearcs):
         from kikit import panelize_ui_impl as ki
         from kikit.panelize import Panel, NonFatalErrors
         from kikit.units import mm
-        from pcbnewTransition import pcbnew
-        from pcbnewTransition.pcbnew import LoadBoard, VECTOR2I
+        import pcbnew
+        from pcbnew import LoadBoard, VECTOR2I
         from kikit.common import fakeKiCADGui
         app = fakeKiCADGui()
 
         preset = ki.obtainPreset([], validate=False, source=source, page=page, debug=debug)
 
+        board = LoadBoard(input)
         if preset["debug"]["deterministic"]:
             pcbnew.KIID.SeedGenerator(42)
-
-        board = LoadBoard(input)
         sourceArea = ki.readSourceArea(preset["source"], board)
 
         panel = Panel(output)

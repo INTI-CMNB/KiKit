@@ -3,7 +3,7 @@ from ..substrate import linestringToKicad
 from ..defs import Layer
 from ..common import KiAngle, KiLength, fromDegrees, fromMm
 from ..pcbnew_utils import increaseZonePriorities
-from pcbnewTransition import pcbnew
+import pcbnew
 from ..panelize import Panel
 from .baseFeature import PanelFeature
 from typing import Any, List, Tuple
@@ -47,8 +47,7 @@ class KiCADCopperFillMixin(PanelFeature):
             zoneContainer.SetAssignedPriority(0)
 
             for l in self.layers:
-                if not panel.board.GetEnabledLayers().Contains(l):
-                    continue
+                panel._ensureLayerEnabled(l)
                 zoneContainer = zoneContainer.Duplicate()
                 zoneContainer.SetLayer(l)
                 panel.board.Add(zoneContainer)
@@ -151,8 +150,7 @@ class HexCopperFill(PanelFeature):
             zoneContainer.SetAssignedPriority(0)
 
             for l in self.layers:
-                if not panel.board.GetEnabledLayers().Contains(l):
-                    continue
+                panel._ensureLayerEnabled(l)
                 zoneContainer = zoneContainer.Duplicate()
                 zoneContainer.SetLayer(l)
                 panel.board.Add(zoneContainer)

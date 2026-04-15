@@ -189,7 +189,8 @@ def readSourceArea(specification, board):
             ref = specification["ref"]
             if ref.strip() == "":
                 raise PresetError("When using source 'annotation' reference cannot be empty.")
-            return expandRect(extractSourceAreaByAnnotation(board, ref), tolerance)
+            layer = specification.get("layer", Layer.Edge_Cuts)
+            return expandRect(extractSourceAreaByAnnotation(board, ref, layer), tolerance)
         if type == "rectangle":
             tl = VECTOR2I(specification["tlx"], specification["tly"])
             br = VECTOR2I(specification["brx"], specification["bry"])
@@ -246,20 +247,22 @@ def buildLayout(preset, panel, sourceBoard, sourceArea):
         if type == "grid":
             placementClass = getPlacementClass(layout["alternation"])
             placer = placementClass(
-                verSpace=layout["vspace"],
                 horSpace=layout["hspace"],
+                verSpace=layout["vspace"],
                 hbonewidth=layout["hbackbone"],
                 vbonewidth=layout["vbackbone"],
                 hboneskip=layout["hboneskip"],
                 vboneskip=layout["vboneskip"],
                 hbonefirst=layout["hbonefirst"],
-                vbonefirst=layout["vbonefirst"])
+                vbonefirst=layout["vbonefirst"],
+                hevendiff=layout["hevendiff"],
+                vevendiff=layout["vevendiff"])
             substrates = panel.makeGrid(
                 boardfile=sourceBoard, sourceArea=sourceArea,
                 rows=layout["rows"], cols=layout["cols"], destination=VECTOR2I(0, 0),
                 rotation=layout["rotation"], placer=placer,
                 netRenamePattern=layout["renamenet"], refRenamePattern=layout["renameref"],
-                bakeText=layout["baketext"])
+                bakeText=layout["baketext"], bakeRef=layout["bakeref"])
             framingSubstrates = dummyFramingSubstrate(substrates, preset)
             panel.buildPartitionLineFromBB(framingSubstrates)
             backboneCuts = buildBackBone(layout, panel, substrates, framing)
@@ -460,12 +463,14 @@ def buildFraming(preset, panel):
             return []
         if type == "railstb":
             panel.makeRailsTb(framingPreset["width"],
-                framingPreset["mintotalheight"], framingPreset["maxtotalheight"])
+                framingPreset["mintotalheight"], framingPreset["maxtotalheight"],
+                vspace=framingPreset["vspace"])
             addFilletAndChamfer(framingPreset, panel)
             return []
         if type == "railslr":
             panel.makeRailsLr(framingPreset["width"],
-                framingPreset["mintotalwidth"], framingPreset["maxtotalwidth"])
+                framingPreset["mintotalwidth"], framingPreset["maxtotalwidth"],
+                hspace=framingPreset["hspace"])
             addFilletAndChamfer(framingPreset, panel)
             return []
         if type == "frame":
@@ -496,6 +501,34 @@ def buildFraming(preset, panel):
         raise PresetError(f"Unknown type '{type}' of frame specification.")
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'framing'")
+
+def buildTabFillets(preset, panel, preFrameSubstrate):
+    """
+    Apply reverse tab fillets where tabs meet the support structure
+    (backbones + frame). The support structure is computed from:
+    - Frame geometry: diff of boardSubstrate before/after framing
+    - Backbone geometry: stored during renderBackbone
+    """
+    # Local imports to avoid circular dependency (panelize_ui_impl <-> panelize)
+    from kikit.panelize import addFrameFillets
+    import shapely.ops
+
+    fillet = preset["tabs"].get("fillet", 0)
+    if fillet == 0:
+        return
+
+    supportParts = []
+    frameGeometry = panel.boardSubstrate.substrates.difference(preFrameSubstrate)
+    if not frameGeometry.is_empty:
+        supportParts.append(frameGeometry)
+    if panel.backbonePieces:
+        supportParts.append(shapely.ops.unary_union(panel.backbonePieces))
+    if not supportParts:
+        return
+
+    support = shapely.ops.unary_union(supportParts)
+    filletedSupport = addFrameFillets(support, panel.substrates, fillet, panel)
+    panel.boardSubstrate.union(filletedSupport)
 
 def buildTooling(preset, panel):
     """
@@ -670,6 +703,8 @@ def buildDebugAnnotation(preset, panel):
             panel.debugRenderBackboneLines()
         if preset["drawboxes"]:
             panel.debugRenderBoundingBoxes()
+        if preset["drawTabFillet"]:
+            panel.debugRenderTabFillet()
     except KeyError as e:
         raise PresetError(f"Missing parameter '{e}' in section 'debug'")
 

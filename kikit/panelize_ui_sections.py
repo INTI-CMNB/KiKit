@@ -272,6 +272,12 @@ LAYOUT_SECTION = {
     "space": SLength(
         never(),
         "Specify the gap between the boards in both direction"),
+    "hevendiff": SLength(
+        always(),
+        "Extra spacing added to even spaces between boards columns"),
+    "vevendiff": SLength(
+        always(),
+        "Extra spacing added to even spaces between boards rows"),
     "hbackbone": SLength(
         typeIn(["grid", "plugin"]),
         "The width of horizontal backbone (0 means no backbone)"),
@@ -315,6 +321,10 @@ LAYOUT_SECTION = {
         always(),
         "Substitute variables in text elements"
     ),
+    "bakeref": SBool(
+        always(),
+        "Bake old references before renaming"
+    ),
     "code": SPlugin(
         plugin.LayoutPlugin,
         typeIn(["plugin"]),
@@ -353,6 +363,9 @@ SOURCE_SECTION = {
     "ref": SStr(
         typeIn(["annotation"]),
         "Specify reference of KiKit annotation symbol"),
+    "layer": SLayer(
+        typeIn(["annotation"]),
+        "Specify layer for annotation lines (default: Edge.Cuts)"),
     "stack": SChoice(
         ["inherit", "2layer", "4layer", "6layer"],
         always(),
@@ -787,7 +800,10 @@ DEBUG_SECTION = {
     ),
     "deterministic": SBool(
         always(),
-        "Make KiCAD IDs deterministic")
+        "Make KiCAD IDs deterministic"),
+    "drawTabFillet": SBool(
+        always(),
+        "Draw forward tabs, reverse tabs, and raw frame geometry for fillet debugging")
 }
 
 def ppDebug(section):

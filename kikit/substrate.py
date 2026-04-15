@@ -7,7 +7,7 @@ import shapely
 import json
 import numpy as np
 from kikit.intervals import Interval, BoxNeighbors, BoxPartitionLines
-from pcbnewTransition import pcbnew, kicad_major
+import pcbnew
 from enum import IntEnum
 from itertools import product
 
@@ -253,14 +253,27 @@ def shapePolyToShapely(p: pcbnew.SHAPE_POLY_SET) \
         outline = shapeLinechainToList(kOutline)
         holes = []
         for hIdx in range(p.HoleCount(pIdx)):
-            kHole = p.Hole(hIdx)
-            assert kHole.isClosed()
+            kHole = p.Hole(pIdx, hIdx)
             holes.append(shapeLinechainToList(kHole))
         polygons.append(Polygon(outline, holes=holes))
     if len(polygons) == 1:
         return polygons[0]
     return MultiPolygon(polygons=polygons)
 
+
+def rectToShapely(rect):
+    corners = [tuple(c) for c in rect.GetRectCorners()]
+    try:
+        radius = rect.GetCornerRadius()
+    except AttributeError:
+        # KiCad 9 has no corner radius on rects
+        radius = 0
+    poly = Polygon(corners)
+    if radius == 0:
+        return poly
+    # Shrink-then-grow rounds the corners; unlike manual arc math this
+    # works correctly even when the rect is rotated.
+    return poly.buffer(-radius, join_style='round').buffer(radius, join_style='round')
 
 def toShapely(ring, geometryList):
     """
@@ -279,7 +292,7 @@ def toShapely(ring, geometryList):
                 commonEndPoint(geometryList[idxA], geometryList[idxB]))
         elif shape in [STROKE_T.S_RECT]:
             assert idxA == idxB
-            outline += geometryList[idxA].GetRectCorners()
+            return rectToShapely(geometryList[idxA])
         elif shape in [STROKE_T.S_POLYGON]:
             # Polygons are always closed, so they should appear as stand-alone
             assert len(ring) in [1, 2]
@@ -598,6 +611,29 @@ def closestIntersectionPoint(origin, direction, outline, maxDistance):
             raise TypeError(f"intersection() returned an unsupported datatype: {geom.__class__.__name__}")
     return min([(g, origin.distance(g)) for g in geoms], key=lambda t: t[1])[0]
 
+def closestRing(geom, origin, direction, maxDistance):
+    """
+    Given a polygon geometry, find the ring (exterior or one of the
+    interiors) that has the closest intersection point from origin in the
+    given direction. This allows tab() to work with polygons that have
+    holes (e.g., frame geometry with milled slots).
+    """
+    bestRing = None
+    bestDist = float('inf')
+    originPoint = Point(origin[0], origin[1])
+    for ring in [geom.exterior] + list(geom.interiors):
+        try:
+            p = closestIntersectionPoint(origin, direction, ring, maxDistance)
+            d = originPoint.distance(p)
+            if d < bestDist:
+                bestDist = d
+                bestRing = ring
+        except NoIntersectionError:
+            continue
+    if bestRing is None:
+        raise NoIntersectionError("No intersection found within given distance", origin)
+    return bestRing
+
 def linestringToKicad(linestring):
     """
     Convert Shapely linestring to KiCAD's linechain
@@ -692,8 +728,9 @@ class Substrate:
             raise RuntimeError("Uknown type '{}' of substrate geometry".format(type(self.substrates)))
         items = []
         for polygon in geoms:
-            items += self._serializeRing(polygon.exterior, reconstructArcs)
-            for interior in polygon.interiors:
+            simplified_polygon = shapely.simplify(polygon, SHP_EPSILON)
+            items += self._serializeRing(simplified_polygon.exterior, reconstructArcs)
+            for interior in simplified_polygon.interiors:
                 items += self._serializeRing(interior, reconstructArcs)
         return items
 
@@ -792,10 +829,7 @@ class Substrate:
         circle.SetShape(STROKE_T.S_CIRCLE)
         circle.SetLayer(Layer.Edge_Cuts)
         circle.SetCenter(toKiCADPoint(c))
-        if kicad_major() >= 8:
-            circle.SetRadius(int(r))
-        else:
-            circle.SetEnd(toKiCADPoint(c + np.array([r, 0])))
+        circle.SetRadius(int(r))
         return circle
 
     def boundingBox(self):
@@ -860,7 +894,7 @@ class Substrate:
             try:
                 sideOriginA = origin + makePerpendicular(direction) * width / 2
                 sideOriginB = origin - makePerpendicular(direction) * width / 2
-                boundary = geom.exterior
+                boundary = closestRing(geom, sideOriginA, direction, maxHeight)
                 splitPointA = closestIntersectionPoint(sideOriginA, direction,
                     boundary, maxHeight)
                 splitPointB = closestIntersectionPoint(sideOriginB, direction,
@@ -936,7 +970,7 @@ class Substrate:
         # to ensure there is an intersection
         candidate = candidates[0].buffer(SHP_EPSILON)
 
-        newFace = candidate.intersection(self.substrates.exterior)
+        newFace = candidate.intersection(self.substrates.boundary)
         if isinstance(newFace, GeometryCollection):
             newFace = MultiLineString([x for x in newFace.geoms if not isinstance(x, Polygon)])
         if isinstance(newFace, MultiLineString):
