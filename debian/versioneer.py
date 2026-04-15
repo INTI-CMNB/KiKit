@@ -10,3 +10,7 @@ def get_version():
         f.write("def get_versions():\n")
         f.write("    return {'version': '"+version+"'}\n")
     return version;
+
+
+def get_cmdclass():
+    return {}
