@@ -427,3 +427,11 @@ def execute_with_debug(procedure, kwargs):
         if debug:
             raise e from None
         sys.exit(1)
+
+# Temporal patch added by SET to support KiCad 10.0.5
+def ZoneDuplicate(zone):
+    try:
+        return zone.Duplicate()
+    except Exception:
+        pass
+    return pcbnew.Cast_to_ZONE(zone.Duplicate(False))

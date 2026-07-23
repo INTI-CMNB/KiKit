@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from ..substrate import linestringToKicad
 from ..defs import Layer
-from ..common import KiAngle, KiLength, fromDegrees, fromMm
+from ..common import KiAngle, KiLength, fromDegrees, fromMm, ZoneDuplicate
 from ..pcbnew_utils import increaseZonePriorities
 import pcbnew
 from ..panelize import Panel
@@ -12,6 +12,7 @@ from shapely.geometry import (
     Polygon,
     MultiPolygon)
 from shapely.ops import unary_union
+
 
 class KiCADCopperFillMixin(PanelFeature):
     """
@@ -48,7 +49,7 @@ class KiCADCopperFillMixin(PanelFeature):
 
             for l in self.layers:
                 panel._ensureLayerEnabled(l)
-                zoneContainer = zoneContainer.Duplicate()
+                zoneContainer = ZoneDuplicate(zoneContainer)
                 zoneContainer.SetLayer(l)
                 panel.board.Add(zoneContainer)
                 panel.zonesToRefill.append(zoneContainer)
@@ -151,7 +152,7 @@ class HexCopperFill(PanelFeature):
 
             for l in self.layers:
                 panel._ensureLayerEnabled(l)
-                zoneContainer = zoneContainer.Duplicate()
+                zoneContainer = ZoneDuplicate(zoneContainer)
                 zoneContainer.SetLayer(l)
                 panel.board.Add(zoneContainer)
                 panel.zonesToRefill.append(zoneContainer)

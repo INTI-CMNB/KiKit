@@ -4,7 +4,7 @@ import textwrap
 import pcbnew
 from pcbnew import LoadBoard, ToMM, VECTOR2I, BOX2I, EDA_ANGLE
 from kikit import sexpr
-from kikit.common import normalize
+from kikit.common import normalize, ZoneDuplicate
 from kikit.pcbnew_utils import resolveItem, setDoNotAllowZoneFills, DIM_UNITS_MODE_MM
 
 from pathlib import Path
@@ -2196,7 +2196,7 @@ class Panel:
 
             for l in layers:
                 self._ensureLayerEnabled(l)
-                zoneContainer = zoneContainer.Duplicate()
+                zoneContainer = ZoneDuplicate(zoneContainer)
                 zoneContainer.SetLayer(l)
                 self.board.Add(zoneContainer)
                 self.zonesToRefill.append(zoneContainer)
